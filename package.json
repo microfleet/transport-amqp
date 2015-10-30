@@ -1,0 +1,33 @@
+{
+  "name": "@m/ms-utils",
+  "version": "0.0.1",
+  "description": "microservice utils based on amqp transport layer",
+  "main": "./lib/index.js",
+  "scripts": {
+    "prepublish": "./node_modules/.bin/babel ./src -d ./lib --source-maps inline"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/makeomatic/ms-utils.git"
+  },
+  "author": "Vitaly Aminev <v@makeomatic.me>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/makeomatic/ms-utils/issues"
+  },
+  "homepage": "https://github.com/makeomatic/ms-utils#readme",
+  "devDependencies": {
+    "babel": "^5.8.29",
+    "babel-eslint": "^4.1.3",
+    "eslint": "^1.7.3",
+    "eslint-config-airbnb": "^0.1.0"
+  },
+  "dependencies": {
+    "amqp-coffee": "^0.1.25",
+    "bluebird": "^3.0.2",
+    "common-errors": "^0.5.3",
+    "eventemitter3": "^1.1.1",
+    "json-stringify-safe": "^5.0.1",
+    "node-uuid": "^1.4.3"
+  }
+}
