@@ -1,5 +1,5 @@
 const Promise = require('bluebird');
-const AMQP = Promise.promisifyAll(require('amqp-coffee'));
+const AMQP = require('amqp-coffee');
 const uuid = require('uuid');
 const Errors = require('common-errors');
 const stringify = require('json-stringify-safe');
@@ -22,6 +22,7 @@ class AMQPTransport extends EventEmitter {
     private: false,
     exchange: 'node-services',
     timeout: 3000,
+    debug: process.env.NODE_ENV === 'development',
     connection: {
       host: 'localhost',
       port: 5672,
@@ -54,6 +55,12 @@ class AMQPTransport extends EventEmitter {
     this._replyTo = null;
     this._replyQueue = {};
 
+    if (this._config.debug) {
+      this.on('log', (message) => {
+        process.stdout.write('> ' + message + '\n');
+      });
+    }
+
     // Form app id string for debugging
     this._appID = {
       name: this._config.name,
@@ -72,12 +79,19 @@ class AMQPTransport extends EventEmitter {
    * @param  {Function} messageHandler
    * @return {Promise}
    */
-  static connect(config, messageHandler) {
-    const amqp = new AMQPTransport(config);
+  static connect(_config, _messageHandler) {
+    let config;
+    let messageHandler;
 
-    if (typeof messageHandler !== 'function') {
-      throw new Errors.ArgumentError('messageHandler', 'Message handler must be a function');
+    if (typeof _config === 'function' && typeof _messageHandler === 'undefined') {
+      messageHandler = _config;
+      config = {};
+    } else {
+      messageHandler = _messageHandler;
+      config = _config;
     }
+
+    const amqp = new AMQPTransport(config);
 
     function router(message, headers, actions) {
       let next;
@@ -85,7 +99,7 @@ class AMQPTransport extends EventEmitter {
         next = amqp.noop;
       } else {
         next = function replyToRequest(error, data) {
-          return amqp.reply(headers, stringify({ error, data }, jsonSerializer)).catch(amqp.noop);
+          return amqp.reply(headers, { error, data }).catch(amqp.noop);
         };
       }
 
@@ -94,7 +108,23 @@ class AMQPTransport extends EventEmitter {
 
     return amqp
       .connect()
-      .call('createQueue', { queue: amqp._config.queue || '', neck: amqp._config.neck, router })
+      .tap(function establishQueuesAndExchanges() {
+        let channelPromise;
+        if (typeof messageHandler === 'function' || amqp._config.listen) {
+          // open channel for communication
+          channelPromise = amqp.createQueue({ queue: amqp._config.queue || '', neck: amqp._config.neck, router });
+
+          if (amqp._config.listen) {
+            // open exchange when we need to listen to routes
+            channelPromise.then(function createExchange(queueData) {
+              const { channel } = queueData;
+              return amqp.bindExchange(channel, amqp._config.listen);
+            });
+          }
+        }
+
+        return channelPromise;
+      })
       .return(amqp);
   }
 
@@ -119,7 +149,7 @@ class AMQPTransport extends EventEmitter {
     }
 
     return Promise.fromNode((next) => {
-      this._amqp = new AMQP(config.connection, next);
+      this._amqp = Promise.promisifyAll(new AMQP(config.connection, next));
       this._amqp.on('ready', this._onConnect);
       this._amqp.on('close', this._onClose);
       return this;
@@ -167,44 +197,6 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
-   * Create unnamed private queue (used for reply events)
-   */
-  createPrivateQueue() {
-    this._replyTo = false;
-
-    return this.createQueue({ queue: '', router: this._privateMessageRouter })
-      .bind(this)
-      .then(function privateQueueCreated(queue, consumer, info) {
-        // remove existing listeners
-        consumer.removeAllListeners('error');
-
-        // consume errors
-        consumer.on('error', (err) => {
-          if (err.replyCode === 404 && err.message.indexOf(info.queue) !== -1) {
-            // https://github.com/dropbox/amqp-coffee#consumer-event-error
-            // handle consumer error on reconnect and close consumer
-            // warning: other queues (not private one) should be handled manually
-            this.emit('log', fmt('consumer returned 404 error', err), {
-              err,
-              level: 'warn',
-              type: 'consumer',
-            });
-
-            // reset replyTo queue
-            this._replyTo = false;
-            return consumer.close();
-          }
-
-          this.emit('error', err);
-        });
-
-        // declare _replyTo queueName
-        this._replyTo = info.queue;
-        this.emit('private-queue-ready');
-      });
-  }
-
-  /**
    * Create queue with specfied settings in current connection
    * also emit new event on message in queue
    *
@@ -234,7 +226,9 @@ class AMQPTransport extends EventEmitter {
       .queueAsync(params)
       .then(function declareQueue(_channel) {
         channel = _channel;
-        return channel.declareAsync();
+        return Promise.fromCallback(function declareQueueCallback(next) {
+          channel.declare(next);
+        });
       })
       .then((_options) => {
         options = _options;
@@ -257,6 +251,45 @@ class AMQPTransport extends EventEmitter {
         };
       });
   }
+
+  /**
+   * Create unnamed private queue (used for reply events)
+   */
+  createPrivateQueue() {
+    this._replyTo = false;
+
+    return this.createQueue({ queue: '', router: this._privateMessageRouter })
+      .bind(this)
+      .then(function privateQueueCreated({ consumer, options }) {
+        // remove existing listeners
+        consumer.removeAllListeners('error');
+
+        // consume errors
+        consumer.on('error', (err) => {
+          if (err.replyCode === 404 && err.message.indexOf(options.queue) !== -1) {
+            // https://github.com/dropbox/amqp-coffee#consumer-event-error
+            // handle consumer error on reconnect and close consumer
+            // warning: other queues (not private one) should be handled manually
+            this.emit('log', fmt('consumer returned 404 error', err), {
+              err,
+              level: 'warn',
+              type: 'consumer',
+            });
+
+            // reset replyTo queue
+            this._replyTo = false;
+            return consumer.close();
+          }
+
+          this.emit('error', err);
+        });
+
+        // declare _replyTo queueName
+        this._replyTo = options.queue;
+        this.emit('private-queue-ready');
+      });
+  }
+
 
   /**
    * Bind specified queue to exchange
@@ -282,7 +315,8 @@ class AMQPTransport extends EventEmitter {
     }
 
     const { _amqp: amqp } = this;
-    return amqp.exchangeAsync(params)
+    return amqp
+      .exchangeAsync(params)
       .then(function createdExchange(exchange) {
         return Promise.fromNode(function declareExchange(next) {
           exchange.declare(next);
@@ -291,7 +325,7 @@ class AMQPTransport extends EventEmitter {
       .then(() => {
         const { exchange } = params;
 
-        return Promise.map(routes, function bindRoutes(route) {
+        return Promise.resolve(routes).bind(this).map(function bindRoutes(route) {
           return Promise.fromNode(function bindRoute(next) {
             queue.bind(exchange, route, next);
           })
@@ -317,7 +351,7 @@ class AMQPTransport extends EventEmitter {
    * @param   {Object} options - additional options
    */
   publish(route, message, options = {}) {
-    return this._amqp.publish(this._config.exchange, route, message, this._publishOptions(options));
+    return this._amqp.publishAsync(this._config.exchange, route, stringify(message, jsonSerializer), this._publishOptions(options));
   }
 
   /**
@@ -328,10 +362,13 @@ class AMQPTransport extends EventEmitter {
    * @return {Promise}
    */
   publishAndWait(route, message, options = {}) {
-    return this._createMessageHandler(options, fmt('job timeout on route "%s" - service does not work or overloaded', route))
-      .then(() => {
+    return this._createMessageHandler(
+      options,
+      fmt('job timeout on route "%s" - service does not work or overloaded', route),
+      () => {
         return this.publish(route, message, options);
-      });
+      }
+    );
   }
 
   /**
@@ -342,7 +379,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options] - additional options
    */
   send(queue, message, options = {}) {
-    return this._amqp.publish('', queue, message, this._publishOptions(options));
+    return this._amqp.publishAsync('', queue, stringify(message, jsonSerializer), this._publishOptions(options));
   }
 
   /**
@@ -353,10 +390,13 @@ class AMQPTransport extends EventEmitter {
    * @param {object} options      additional options
    */
   sendAndWait(queue, message, options = {}) {
-    return this._createMessageHandler(options, fmt('job timeout on queue "%s" - service does not work or overloaded', queue))
-      .then(() => {
+    return this._createMessageHandler(
+      options,
+      fmt('job timeout on queue "%s" - service does not work or overloaded', queue),
+      () => {
         return this.send(queue, message, options);
-      });
+      }
+    );
   }
 
   /**
@@ -379,7 +419,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {String} errorMessage
    * @return {Promise}
    */
-  _createMessageHandler(options, errorMessage) {
+  _createMessageHandler(options, errorMessage, publishMessage) {
     const replyTo = options.replyTo || this._replyTo;
     let promise;
 
@@ -406,7 +446,9 @@ class AMQPTransport extends EventEmitter {
         promise = this.createPrivateQueue();
       }
 
-      return promise.return(this).call('_createMessageHandler', options, errorMessage);
+      return promise
+        .return(this)
+        .call('_createMessageHandler', options, errorMessage, publishMessage);
     }
 
     const correlationId = options.correlationId = options.correlationId || uuid.v4();
@@ -414,13 +456,15 @@ class AMQPTransport extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       // set timer
-      const timeout = options.timeout || this.cfg.timeout;
+      const timeout = options.timeout || this._config.timeout;
       const timer = setTimeout(function messageHandlerTimeout() {
         delete this._replyQueue[correlationId];
         reject(new Errors.TimeoutError(timeout + 'ms'));
       }, timeout);
 
       this._replyQueue[correlationId] = { resolve, reject, timer };
+
+      return publishMessage();
     });
   }
 
@@ -454,6 +498,8 @@ class AMQPTransport extends EventEmitter {
     // append request timeout in headers
     ld.defaults(options.headers, {
       timeout: options.timeout || this._config.timeout,
+      confirm: true,
+      mandatory: true,
     });
 
     return options;
@@ -475,10 +521,12 @@ class AMQPTransport extends EventEmitter {
     const amqpTransport = this;
 
     return function consumeMessage(message) {
+      amqpTransport.emit('log', fmt('Incoming message:', message.raw, message.properties));
+
       // do not access .data, because it's a getter and will trigger parses on
       // certain type contents
       const { raw, ack, reject, retry } = message;
-      const data = parseInput(raw);
+      const data = parseInput.call(amqpTransport, raw);
 
       // pass to the message router
       // data - headers - actions
@@ -497,13 +545,22 @@ class AMQPTransport extends EventEmitter {
     const future = this._replyQueue[correlationId];
 
     if (!future) {
-      return this.emit('log', fmt('no recipient for the message %s and id %s', message.error || message.data, correlationId), {
+      this.emit('log', fmt('no recipient for the message %s and id %s', message.error || message.data, correlationId), {
         correlationId,
         error: message.error,
         data: message.data,
         log: 'warn',
         type: 'reply',
       });
+
+      if (headers.replyTo) {
+        return this.reply(headers, {
+          error: new Errors.NotPermittedError(fmt('no recipients found for message with correlation id %s', correlationId)),
+        });
+      }
+
+      // mute
+      return null;
     }
 
     clearTimeout(future.timer);
@@ -525,6 +582,7 @@ class AMQPTransport extends EventEmitter {
     try {
       return JSON.parse(_data, jsonDeserializer);
     } catch (err) {
+      this.emit('log', fmt('Error parsing buffer', err, _data.toString()));
       return {
         err: new Errors.ValidationError('couldn\'t deserialize input', 500, 'message.raw'),
       };

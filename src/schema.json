@@ -16,14 +16,59 @@
     "timeout": {
       "type": "integer"
     },
+    "listen": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "connection": {
       "type": "object",
       "properties": {
         "host": {
-          "type": "string"
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "required": [ "host", "port" ],
+                    "properties": {
+                      "host": {
+                        "type": "string"
+                      },
+                      "port": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
         },
         "port": {
-          "type": "integer"
+          "oneOf": [
+            { "type": "string" },
+            { "type": "integer" }
+          ]
         },
         "login": {
           "type": "string"

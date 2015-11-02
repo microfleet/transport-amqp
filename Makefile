@@ -1,14 +1,13 @@
-#!/usr/bin/env bash
+SHELL := /bin/bash
+NODE_VERSIONS := 5 4 0.10
 
-NODE_VERSIONS=( "5.0.0" "4.2.1" "0.10.40" )
+test: $(NODE_VERSIONS)
 
-test:
-	for NODE_VERSION in "${NODE_VERSIONS[@]}"
-	do
-		docker run -v ${PWD}:/usr/src/app -w /usr/src/app --rm node:$NODE_VERSION npm test
-	done
+$(NODE_VERSIONS):
+	docker run -d --name=rabbitmq rabbitmq; \
+	docker run --link=rabbitmq -v ${PWD}:/usr/src/app -w /usr/src/app --rm -e TEST_ENV=docker node:$@ npm test; \
+	EXIT_CODE=$?; \
+	docker rm -f rabbitmq; \
+	exit ${EXIT_CODE};
 
-compile:
-
-
-.PHONY: test compile
+.PHONY: test
