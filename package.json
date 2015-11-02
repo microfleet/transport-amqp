@@ -1,6 +1,6 @@
 {
   "name": "ms-amqp-transport",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "microservice utils based on amqp transport layer",
   "main": "./lib/index.js",
   "scripts": {
@@ -9,14 +9,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/makeomatic/ms-utils.git"
+    "url": "git+https://github.com/makeomatic/ms-amqp-transport.git"
   },
   "author": "Vitaly Aminev <v@makeomatic.me>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/makeomatic/ms-utils/issues"
+    "url": "https://github.com/makeomatic/ms-amqp-transport/issues"
   },
-  "homepage": "https://github.com/makeomatic/ms-utils#readme",
+  "homepage": "https://github.com/makeomatic/ms-amqp-transport#readme",
   "devDependencies": {
     "babel-core": "^5.8.33",
     "babel-eslint": "^4.1.3",
