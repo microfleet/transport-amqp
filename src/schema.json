@@ -1,0 +1,75 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "number" }
+      ]
+    },
+    "private": {
+      "type": "boolean"
+    },
+    "exchange": {
+      "type": "string"
+    },
+    "timeout": {
+      "type": "integer"
+    },
+    "connection": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "login": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "vhost": {
+          "type": "string"
+        },
+        "temporaryChannelTimeout": {
+          "type": "number"
+        },
+        "heartbeat": {
+          "type": "integer"
+        },
+        "reconnect": {
+          "type": "boolean"
+        },
+        "reconnectDelayTime": {
+          "type": "integer"
+        },
+        "hostRandom": {
+          "type": "boolean"
+        },
+        "clientProperties": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "product": {
+              "type": "string"
+            }
+          }
+        },
+        "ssl": {
+          "type": "boolean"
+        },
+        "sslOptions": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

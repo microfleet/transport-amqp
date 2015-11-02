@@ -6,8 +6,11 @@ const stringify = require('json-stringify-safe');
 const EventEmitter = require('eventemitter3');
 const os = require('os');
 const ld = require('lodash');
-const pkg = require('./package.json');
-const { format: fmt } = require('utils');
+const pkg = require('../package.json');
+const { format: fmt } = require('util');
+const schema = require('./schema.json');
+const schemaValidator = require('is-my-json-valid');
+const validate = schemaValidator(schema, { greedy: true });
 
 // serialization functions
 const { jsonSerializer, jsonDeserializer } = require('./serialization.js');
@@ -37,17 +40,26 @@ class AMQPTransport extends EventEmitter {
   constructor(opts = {}) {
     super();
 
+    validate(opts);
+    if (validate.errors) {
+      const err = new Errors.ValidationError('configuration options are malformed');
+      validate.errors.forEach(innerError => {
+        err.addError(new Errors.ValidationError(fmt('%s: %s', innerError.field, innerError.message)));
+      });
+      throw err;
+    }
+
     // Default configuration
-    this._config = ld.merge({}, this.defaultOpts, opts);
+    this._config = ld.merge({}, AMQPTransport.defaultOpts, opts);
     this._replyTo = null;
     this._replyQueue = {};
 
     // Form app id string for debugging
     this._appID = {
-      name: this.cfg.name,
+      name: this._config.name,
       host: os.hostname(),
       pid: process.pid,
-      amqp_version: pkg.version,
+      utils_version: pkg.version,
       version: opts.version || 'n/a',
     };
 
@@ -56,11 +68,42 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
+   * Allows one to consume messages with a given router and predefined callback handler
+   * @param  {Function} messageHandler
+   * @return {Promise}
+   */
+  static connect(config, messageHandler) {
+    const amqp = new AMQPTransport(config);
+
+    if (typeof messageHandler !== 'function') {
+      throw new Errors.ArgumentError('messageHandler', 'Message handler must be a function');
+    }
+
+    function router(message, headers, actions) {
+      let next;
+      if (!headers.replyTo || !headers.correlationId) {
+        next = amqp.noop;
+      } else {
+        next = function replyToRequest(error, data) {
+          return amqp.reply(headers, stringify({ error, data }, jsonSerializer)).catch(amqp.noop);
+        };
+      }
+
+      messageHandler(message, headers, actions, next);
+    }
+
+    return amqp
+      .connect()
+      .call('createQueue', { queue: amqp._config.queue || '', neck: amqp._config.neck, router })
+      .return(amqp);
+  }
+
+  /**
    * Connects to AMQP, if config.router is specified earlier, automatically invokes .consume function
    * @return {Promise}
    */
   connect() {
-    const { amqp, _config: config } = this;
+    const { _amqp: amqp, _config: config } = this;
 
     if (amqp) {
       switch (amqp.state) {
@@ -71,22 +114,16 @@ class AMQPTransport extends EventEmitter {
       default:
         // already closed, but make sure
         amqp.close();
-        this.amqp = null;
+        this._amqp = null;
       }
     }
 
-    return Promise.fromNode(function connectedToAMQP(next) {
-      this.amqp = new AMQP(config.connection, next);
-      this.amqp.on('ready', this._onConnect);
-      this.amqp.on('close', this._onClose);
-    })
-    .then(() => {
-      const { router } = config;
-      if (router) {
-        return this.consume(router);
-      }
-    })
-    .return(this);
+    return Promise.fromNode((next) => {
+      this._amqp = new AMQP(config.connection, next);
+      this._amqp.on('ready', this._onConnect);
+      this._amqp.on('close', this._onClose);
+      return this;
+    });
   }
 
   /**
@@ -103,35 +140,8 @@ class AMQPTransport extends EventEmitter {
     });
   }
 
-  /**
-   * Allows one to consume messages with a given router and predefined callback handler
-   * @param  {Function} messageHandler
-   * @return {Promise}
-   */
-  consume(messageHandler) {
-    if (!this.amqp) {
-      return Promise.reject(new Errors.InvalidOperationError('you must initialize AMQP connection first'));
-    }
-
-    function router(message, headers, actions) {
-      let next;
-      if (!headers.replyTo || !headers.correlationId) {
-        next = this.noop;
-      } else {
-        next = function replyToRequest(error, data) {
-          return this.reply(headers, stringify({ error, data }, jsonSerializer)).catch(ld.noop);
-        };
-      }
-
-      messageHandler(message, headers, actions, next);
-    }
-
-    return this
-      .createQueue({ queue: this._config.queue || '', neck: this._config.neck, router });
-  }
-
   close() {
-    const { amqp } = this;
+    const { _amqp: amqp } = this;
     if (amqp) {
       switch (amqp.state) {
       case 'opening':
@@ -143,12 +153,12 @@ class AMQPTransport extends EventEmitter {
           amqp.close();
         })
         .finally(() => {
-          this.amqp = null;
+          this._amqp = null;
           amqp.removeAllListeners();
         });
 
       default:
-        this.amqp = null;
+        this._amqp = null;
         return Promise.resolve();
       }
     }
@@ -201,7 +211,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object}  _params   - queue parameters
    */
   createQueue(_params) {
-    const { amqp } = this;
+    const { _amqp: amqp } = this;
 
     let channel;
     let consumer;
@@ -271,7 +281,7 @@ class AMQPTransport extends EventEmitter {
       return Promise.reject(new Errors.ValidationError('please specify exchange name', 500, 'params.exchange'));
     }
 
-    const { amqp } = this;
+    const { _amqp: amqp } = this;
     return amqp.exchangeAsync(params)
       .then(function createdExchange(exchange) {
         return Promise.fromNode(function declareExchange(next) {
@@ -307,7 +317,7 @@ class AMQPTransport extends EventEmitter {
    * @param   {Object} options - additional options
    */
   publish(route, message, options = {}) {
-    return this.amqp.publish(this._config.exchange, route, message, this._publishOptions(options));
+    return this._amqp.publish(this._config.exchange, route, message, this._publishOptions(options));
   }
 
   /**
@@ -332,7 +342,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options] - additional options
    */
   send(queue, message, options = {}) {
-    return this.amqp.publish('', queue, message, this._publishOptions(options));
+    return this._amqp.publish('', queue, message, this._publishOptions(options));
   }
 
   /**
@@ -407,8 +417,6 @@ class AMQPTransport extends EventEmitter {
       const timeout = options.timeout || this.cfg.timeout;
       const timer = setTimeout(function messageHandlerTimeout() {
         delete this._replyQueue[correlationId];
-        timer = null;
-
         reject(new Errors.TimeoutError(timeout + 'ms'));
       }, timeout);
 
@@ -527,7 +535,7 @@ class AMQPTransport extends EventEmitter {
    * 'ready' event from amqp-coffee lib, perform queue recreation here
    */
   _onConnect = () => {
-    const { serverProperties } = this.amqp;
+    const { serverProperties } = this._amqp;
     const { cluster_name, version } = serverProperties;
 
     // emit connect event through log

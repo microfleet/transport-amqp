@@ -27,4 +27,5 @@ build/Release
 src
 
 # test dir
-__tests__
+test
+Makefile
