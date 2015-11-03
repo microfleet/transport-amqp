@@ -33,7 +33,6 @@
     "eventemitter3": "^1.1.1",
     "is-my-json-valid": "^2.12.2",
     "json-stringify-safe": "^5.0.1",
-    "node-uuid": "^1.4.3",
     "uuid": "^2.0.1"
   }
 }
