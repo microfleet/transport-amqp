@@ -219,7 +219,6 @@ class AMQPTransport extends EventEmitter {
     ld.defaults(params, {
       autoDelete: !params.queue,
       durable: !!params.queue,
-      router: this._messageRouter,
     });
 
     return amqp
@@ -232,18 +231,29 @@ class AMQPTransport extends EventEmitter {
       })
       .then((_options) => {
         options = _options;
-        return Promise.fromNode((next) => {
-          consumer = amqp.consume(options.queue, this._queueOpts(params), this._onConsume(params.router), next);
-          consumer.on('error', (err) => this.emit('error', err));
-        });
-      })
-      .then(() => {
+
         this.emit('log', fmt('queue "%s" created', options.queue), {
           queue: options.queue,
           type: 'queue',
           level: 'info',
         });
 
+        if (!params.router) {
+          return null;
+        }
+
+        return Promise.fromNode((next) => {
+          this.emit('log', fmt('consumer is being created on "%s"', options.queue), {
+            queue: options.queue,
+            type: 'queue',
+            level: 'info',
+          });
+
+          consumer = amqp.consume(options.queue, this._queueOpts(params), this._onConsume(params.router), next);
+          consumer.on('error', (err) => this.emit('error', err));
+        });
+      })
+      .then(() => {
         return {
           channel,
           consumer,
@@ -365,8 +375,8 @@ class AMQPTransport extends EventEmitter {
     return this._createMessageHandler(
       options,
       fmt('job timeout on route "%s" - service does not work or overloaded', route),
-      () => {
-        return this.publish(route, message, options);
+      (opts = {}) => {
+        return this.publish(route, message, ld.merge(opts, options));
       }
     );
   }
@@ -393,8 +403,8 @@ class AMQPTransport extends EventEmitter {
     return this._createMessageHandler(
       options,
       fmt('job timeout on queue "%s" - service does not work or overloaded', queue),
-      () => {
-        return this.send(queue, message, options);
+      (opts = {}) => {
+        return this.send(queue, message, ld.merge(opts, options));
       }
     );
   }
@@ -460,11 +470,13 @@ class AMQPTransport extends EventEmitter {
       const timer = setTimeout(function messageHandlerTimeout() {
         delete this._replyQueue[correlationId];
         reject(new Errors.TimeoutError(timeout + 'ms'));
-      }, timeout);
+      }, timeout); // slightly longer timeout, if message was not consumed in time, it will return with expiration
 
       this._replyQueue[correlationId] = { resolve, reject, timer };
 
-      return publishMessage();
+      // this is to ensure that queue is not overflown and work will not
+      // be completed later on
+      return publishMessage({ expiration: Math.ceil(timeout * 0.9).toString() });
     });
   }
 
@@ -498,6 +510,9 @@ class AMQPTransport extends EventEmitter {
     // append request timeout in headers
     ld.defaults(options.headers, {
       timeout: options.timeout || this._config.timeout,
+    });
+
+    ld.defaults(options, {
       confirm: true,
       mandatory: true,
     });

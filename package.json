@@ -1,11 +1,11 @@
 {
   "name": "ms-amqp-transport",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "microservice utils based on amqp transport layer",
   "main": "./lib/index.js",
   "scripts": {
     "prepublish": "babel ./src -d ./lib --source-maps inline --optional es7.objectRestSpread,es7.classProperties,es7.decorators",
-    "test": "npm rebuild && ./node_modules/.bin/mocha --require ./test/babelhook.js --bail --timeout 10000 -R xunit > test-report-$(node -v).xml"
+    "test": "npm rebuild && BLUEBIRD_DEBUG=1 ./node_modules/.bin/mocha --require ./test/babelhook.js --bail --timeout 10000 -R xunit > test-report-$(node -v).xml"
   },
   "repository": {
     "type": "git",
