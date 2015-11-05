@@ -33,6 +33,14 @@ class AMQPTransport extends EventEmitter {
     },
   };
 
+  static extendMessageProperties = [
+    'deliveryTag',
+    'redelivered',
+    'exchange',
+    'routingKey',
+    'weight',
+  ];
+
   /**
    * Instantiate AMQP Transport
    * @param  {Object} opts, defaults to {}
@@ -162,12 +170,15 @@ class AMQPTransport extends EventEmitter {
    * @param  {Mixed} data
    */
   noop(error, data) {
-    this.emit('log', fmt('when replying to message with %s response could not be delivered', stringify({ error, data }, jsonSerializer)), {
-      data,
-      err: error,
-      type: 'reply',
-      level: 'error',
-    });
+    if (this.listeners('log', true)) {
+      this.log('when replying to message with %s response could not be delivered', stringify({ error, data }, jsonSerializer));
+    }
+  }
+
+  log = () => {
+    if (this.listeners('log', true)) {
+      this.emit('log', fmt.apply(fmt, arguments));
+    }
   }
 
   close() {
@@ -232,22 +243,14 @@ class AMQPTransport extends EventEmitter {
       .then((_options) => {
         options = _options;
 
-        this.emit('log', fmt('queue "%s" created', options.queue), {
-          queue: options.queue,
-          type: 'queue',
-          level: 'info',
-        });
+        this.log('queue "%s" created', options.queue);
 
         if (!params.router) {
           return null;
         }
 
         return Promise.fromNode((next) => {
-          this.emit('log', fmt('consumer is being created on "%s"', options.queue), {
-            queue: options.queue,
-            type: 'queue',
-            level: 'info',
-          });
+          this.log('consumer is being created on "%s"', options.queue);
 
           consumer = amqp.consume(options.queue, this._queueOpts(params), this._onConsume(params.router), next);
           consumer.on('error', (err) => this.emit('error', err));
@@ -280,11 +283,7 @@ class AMQPTransport extends EventEmitter {
             // https://github.com/dropbox/amqp-coffee#consumer-event-error
             // handle consumer error on reconnect and close consumer
             // warning: other queues (not private one) should be handled manually
-            this.emit('log', fmt('consumer returned 404 error', err), {
-              err,
-              level: 'warn',
-              type: 'consumer',
-            });
+            this.log('consumer returned 404 error', err);
 
             // reset replyTo queue
             this._replyTo = false;
@@ -341,13 +340,7 @@ class AMQPTransport extends EventEmitter {
           })
           .tap(() => {
             const queueName = queue.queueOptions.queue;
-            this.emit('log', fmt('queue "%s" binded to exchange "%s" on route "%s"', queueName, exchange, route), {
-              exchange,
-              route,
-              queue: queueName,
-              level: 'info',
-              type: 'queue-bind',
-            });
+            this.log('queue "%s" binded to exchange "%s" on route "%s"', queueName, exchange, route);
           });
         });
       });
@@ -536,6 +529,10 @@ class AMQPTransport extends EventEmitter {
     const amqpTransport = this;
 
     return function consumeMessage(message) {
+      // pick extra properties
+      ld.extend(message.properties, ld.pick(message, AMQPTransport.extendMessageProperties));
+
+      // emit log
       amqpTransport.emit('log', fmt('Incoming message:', message.raw, message.properties));
 
       // do not access .data, because it's a getter and will trigger parses on
@@ -560,13 +557,7 @@ class AMQPTransport extends EventEmitter {
     const future = this._replyQueue[correlationId];
 
     if (!future) {
-      this.emit('log', fmt('no recipient for the message %s and id %s', message.error || message.data, correlationId), {
-        correlationId,
-        error: message.error,
-        data: message.data,
-        log: 'warn',
-        type: 'reply',
-      });
+      this.log('no recipient for the message %s and id %s', message.error || message.data, correlationId);
 
       if (headers.replyTo) {
         return this.reply(headers, {
@@ -597,7 +588,7 @@ class AMQPTransport extends EventEmitter {
     try {
       return JSON.parse(_data, jsonDeserializer);
     } catch (err) {
-      this.emit('log', fmt('Error parsing buffer', err, _data.toString()));
+      this.log('Error parsing buffer', err, _data.toString());
       return {
         err: new Errors.ValidationError('couldn\'t deserialize input', 500, 'message.raw'),
       };
@@ -612,12 +603,7 @@ class AMQPTransport extends EventEmitter {
     const { cluster_name, version } = serverProperties;
 
     // emit connect event through log
-    this.emit('log', fmt('connected to %s v%s', cluster_name, version), {
-      cluster_name,
-      version,
-      type: 'connect',
-      level: 'info',
-    });
+    this.log('connected to %s v%s', cluster_name, version);
 
     // https://github.com/dropbox/amqp-coffee#reconnect-flow
     // recreate unnamed private queue
@@ -634,11 +620,7 @@ class AMQPTransport extends EventEmitter {
    */
   _onClose = (err) => {
     // emit connect event through log
-    this.emit('log', fmt('connection is closed. Had an error:', err ? err : '<n/a>'), {
-      type: 'disconnect',
-      level: 'warn',
-      error: err,
-    });
+    this.log('connection is closed. Had an error:', err ? err : '<n/a>');
 
     // re-emit close event
     this.emit('close', err);
