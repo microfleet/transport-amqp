@@ -175,9 +175,9 @@ class AMQPTransport extends EventEmitter {
     }
   }
 
-  log = () => {
+  log = (...opts) => {
     if (this.listeners('log', true)) {
-      this.emit('log', fmt.apply(fmt, arguments));
+      this.emit('log', fmt(...opts));
     }
   }
 
@@ -533,7 +533,7 @@ class AMQPTransport extends EventEmitter {
       ld.extend(message.properties, ld.pick(message, AMQPTransport.extendMessageProperties));
 
       // emit log
-      amqpTransport.emit('log', fmt('Incoming message:', message.raw, message.properties));
+      amqpTransport.log('Incoming message:', message.raw, message.properties);
 
       // do not access .data, because it's a getter and will trigger parses on
       // certain type contents
