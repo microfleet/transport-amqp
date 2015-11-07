@@ -533,7 +533,7 @@ class AMQPTransport extends EventEmitter {
       ld.extend(message.properties, ld.pick(message, AMQPTransport.extendMessageProperties));
 
       // emit log
-      amqpTransport.log('Incoming message:', message.raw, message.properties);
+      amqpTransport.log('Incoming message:', String(message.raw), message.properties);
 
       // do not access .data, because it's a getter and will trigger parses on
       // certain type contents

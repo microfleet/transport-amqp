@@ -11,7 +11,7 @@
     "type": "git",
     "url": "git+https://github.com/makeomatic/ms-amqp-transport.git"
   },
-  "author": "Vitaly Aminev <v@makeomatic.me>",
+  "author": "Vitaly Aminev <v@makeomatic.ru>",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/makeomatic/ms-amqp-transport/issues"
