@@ -5,14 +5,14 @@ calling interface.
 
 ## Install
 
-`npm i ms-utils -S`
+`npm i ms-amqp-transport -S`
 
 Heavily relies on `dropbox/amqp-coffee` lib for establishing communication to rabbitmq.
 
 ## Usage
 
 ```js
-const AMQPTransport = require('ms-utils');
+const AMQPTransport = require('ms-amqp-transport');
 
 const amqp = new AMQPTransport(config);
 
@@ -27,7 +27,7 @@ based on the provided configuration.
 Consider the following example:
 
 ```js
-const AMQPTransport = require('ms-utils');
+const AMQPTransport = require('ms-amqp-transport');
 
 // message routers
 function router(message, headers, actions, next) {
