@@ -21,7 +21,7 @@ class AMQPTransport extends EventEmitter {
     name: 'amqp',
     private: false,
     exchange: 'node-services',
-    timeout: 3000,
+    timeout: 10000,
     debug: process.env.NODE_ENV === 'development',
     connection: {
       host: 'localhost',
@@ -169,7 +169,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {Error} err
    * @param  {Mixed} data
    */
-  noop(error, data) {
+  noop = (error, data) => {
     if (this.listeners('log', true)) {
       this.log('when replying to message with %s response could not be delivered', stringify({ error, data }, jsonSerializer));
     }
@@ -460,7 +460,7 @@ class AMQPTransport extends EventEmitter {
     return new Promise((resolve, reject) => {
       // set timer
       const timeout = options.timeout || this._config.timeout;
-      const timer = setTimeout(function messageHandlerTimeout() {
+      const timer = setTimeout(() => {
         delete this._replyQueue[correlationId];
         reject(new Errors.TimeoutError(timeout + 'ms'));
       }, timeout); // slightly longer timeout, if message was not consumed in time, it will return with expiration
