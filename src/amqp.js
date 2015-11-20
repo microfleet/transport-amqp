@@ -8,7 +8,7 @@ const os = require('os');
 const ld = require('lodash');
 const pkg = require('../package.json');
 const { format: fmt } = require('util');
-const schema = require('./schema.json');
+const schema = require('../schema.json');
 const schemaValidator = require('is-my-json-valid');
 const validate = schemaValidator(schema, { greedy: true });
 
