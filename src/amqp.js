@@ -462,7 +462,7 @@ class AMQPTransport extends EventEmitter {
       const timeout = options.timeout || this._config.timeout;
       const timer = setTimeout(() => {
         delete this._replyQueue[correlationId];
-        reject(new Errors.TimeoutError(timeout + 'ms'));
+        reject(new Errors.TimeoutError(timeout + 'ms: ' + errorMessage));
       }, timeout); // slightly longer timeout, if message was not consumed in time, it will return with expiration
 
       this._replyQueue[correlationId] = { resolve, reject, timer };
