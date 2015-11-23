@@ -1,16 +1,20 @@
 const Promise = require('bluebird');
 const AMQP = require('amqp-coffee');
-const uuid = require('uuid');
+const uuid = require('node-uuid');
 const Errors = require('common-errors');
 const stringify = require('json-stringify-safe');
 const EventEmitter = require('eventemitter3');
 const os = require('os');
 const ld = require('lodash');
 const pkg = require('../package.json');
+const path = require('path');
 const { format: fmt } = require('util');
-const schema = require('../schema.json');
-const schemaValidator = require('is-my-json-valid');
-const validate = schemaValidator(schema, { greedy: true });
+
+// init validation
+const Validation = require('ms-validation');
+const validator = new Validation('..', function filterFiles(filename) {
+  return path.extname(filename) === '.json' && path.basename(filename, '.json') !== 'package';
+});
 
 // serialization functions
 const { jsonSerializer, jsonDeserializer } = require('./serialization.js');
@@ -48,21 +52,19 @@ class AMQPTransport extends EventEmitter {
    */
   constructor(opts = {}) {
     super();
+    const config = this._config = ld.merge({}, AMQPTransport.defaultOpts, opts);
 
-    validate(opts);
-    if (validate.errors) {
-      const err = new Errors.ValidationError('configuration options are malformed');
-      validate.errors.forEach(innerError => {
-        err.addError(new Errors.ValidationError(fmt('%s: %s', innerError.field, innerError.message)));
-      });
-      throw err;
+    // validate configuration
+    const { error } = validator.validateSync('amqp', config);
+    if (error) {
+      throw error;
     }
 
-    // Default configuration
-    this._config = ld.merge({}, AMQPTransport.defaultOpts, opts);
+    // setup instance
     this._replyTo = null;
     this._replyQueue = {};
 
+    // add simple debugger
     if (this._config.debug) {
       this.on('log', (message) => {
         process.stdout.write('> ' + message + '\n');
@@ -101,24 +103,24 @@ class AMQPTransport extends EventEmitter {
 
     const amqp = new AMQPTransport(config);
 
-    function router(message, headers, actions) {
-      let next;
-      if (!headers.replyTo || !headers.correlationId) {
-        next = amqp.noop;
-      } else {
-        next = function replyToRequest(error, data) {
-          return amqp.reply(headers, { error, data }).catch(amqp.noop);
-        };
-      }
-
-      messageHandler(message, headers, actions, next);
-    }
-
     return amqp
       .connect()
       .tap(function establishQueuesAndExchanges() {
         let channelPromise;
         if (typeof messageHandler === 'function' || amqp._config.listen) {
+          const router = function router(message, headers, actions) {
+            let next;
+            if (!headers.replyTo || !headers.correlationId) {
+              next = amqp.noop;
+            } else {
+              next = function replyToRequest(error, data) {
+                return amqp.reply(headers, { error, data }).catch(amqp.noop);
+              };
+            }
+
+            messageHandler(message, headers, actions, next);
+          };
+
           // open channel for communication
           channelPromise = amqp.createQueue({ queue: amqp._config.queue || '', neck: amqp._config.neck, router });
 
