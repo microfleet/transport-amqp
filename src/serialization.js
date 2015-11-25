@@ -26,8 +26,8 @@ function serializeError(error) {
 
 /**
  * Make sure we get a valid JS error
- * @param  {[type]} error [description]
- * @return {[type]}       [description]
+ * @param  {Object} error
+ * @return {Error}
  */
 function deserializeError(error) {
   const deserialized = new MSError();

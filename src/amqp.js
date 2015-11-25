@@ -255,7 +255,7 @@ class AMQPTransport extends EventEmitter {
           this.log('consumer is being created on "%s"', options.queue);
 
           consumer = amqp.consume(options.queue, this._queueOpts(params), this._onConsume(params.router), next);
-          consumer.on('error', (err) => this.emit('error', err));
+          consumer.on('error', err => this.emit('error', err));
         });
       })
       .then(() => {
@@ -534,17 +534,13 @@ class AMQPTransport extends EventEmitter {
       // pick extra properties
       ld.extend(message.properties, ld.pick(message, AMQPTransport.extendMessageProperties));
 
-      // emit log
-      amqpTransport.log('Incoming message:', String(message.raw), message.properties);
-
       // do not access .data, because it's a getter and will trigger parses on
       // certain type contents
-      const { raw, ack, reject, retry } = message;
-      const data = parseInput.call(amqpTransport, raw);
+      const data = parseInput.call(amqpTransport, message.raw);
 
       // pass to the message router
       // data - headers - actions
-      router.call(amqpTransport, data, message.properties, { ack, reject, retry });
+      router.call(amqpTransport, data, message.properties, message);
     };
   }
 
