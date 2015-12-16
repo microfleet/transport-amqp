@@ -435,7 +435,7 @@ class AMQPTransport extends EventEmitter {
           let error;
 
           done = function onReady() {
-            this.removeAllListener('error', error);
+            this.removeAllListeners('error', error);
             resolve(this);
           };
 
