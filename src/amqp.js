@@ -17,7 +17,8 @@ const validator = new Validation('..', function filterFiles(filename) {
 });
 
 // serialization functions
-const { jsonSerializer, jsonDeserializer } = require('./serialization.js');
+const { jsonSerializer, jsonDeserializer, MSError } = require('./serialization.js');
+const COPY_DATA = ['code', 'name', 'errors', 'field'];
 
 class AMQPTransport extends EventEmitter {
 
@@ -147,14 +148,14 @@ class AMQPTransport extends EventEmitter {
 
     if (amqp) {
       switch (amqp.state) {
-      case 'opening':
-      case 'open':
-      case 'reconnecting':
-        return Promise.reject(new Errors.InvalidOperationError('connection was already initialized, close it first'));
-      default:
-        // already closed, but make sure
-        amqp.close();
-        this._amqp = null;
+        case 'opening':
+        case 'open':
+        case 'reconnecting':
+          return Promise.reject(new Errors.InvalidOperationError('connection was already initialized, close it first'));
+        default:
+          // already closed, but make sure
+          amqp.close();
+          this._amqp = null;
       }
     }
 
@@ -187,22 +188,22 @@ class AMQPTransport extends EventEmitter {
     const { _amqp: amqp } = this;
     if (amqp) {
       switch (amqp.state) {
-      case 'opening':
-      case 'open':
-      case 'reconnecting':
-        return new Promise(function disconnectListener(resolve, reject) {
-          amqp.once('close', resolve);
-          amqp.once('error', reject);
-          amqp.close();
-        })
-        .finally(() => {
-          this._amqp = null;
-          amqp.removeAllListeners();
-        });
+        case 'opening':
+        case 'open':
+        case 'reconnecting':
+          return new Promise(function disconnectListener(resolve, reject) {
+            amqp.once('close', resolve);
+            amqp.once('error', reject);
+            amqp.close();
+          })
+          .finally(() => {
+            this._amqp = null;
+            amqp.removeAllListeners();
+          });
 
-      default:
-        this._amqp = null;
-        return Promise.resolve();
+        default:
+          this._amqp = null;
+          return Promise.resolve();
       }
     }
 
@@ -242,7 +243,7 @@ class AMQPTransport extends EventEmitter {
           channel.declare(next);
         });
       })
-      .then((_options) => {
+      .then(_options => {
         options = _options;
 
         this.log('queue "%s" created', options.queue);
@@ -251,7 +252,7 @@ class AMQPTransport extends EventEmitter {
           return null;
         }
 
-        return Promise.fromNode((next) => {
+        return Promise.fromNode(next => {
           this.log('consumer is being created on "%s"', options.queue);
 
           consumer = amqp.consume(options.queue, this._queueOpts(params), this._onConsume(params.router), next);
@@ -311,7 +312,7 @@ class AMQPTransport extends EventEmitter {
    */
   bindExchange(queue, _routes, params = {}) {
     // make sure we have an expanded array of routes
-    const routes = Array.isArray(_routes) ? _routes : [ _routes ];
+    const routes = Array.isArray(_routes) ? _routes : [_routes];
 
     // default params
     ld.defaults(params, {
@@ -571,7 +572,23 @@ class AMQPTransport extends EventEmitter {
     delete this._replyQueue[correlationId];
 
     if (message.error) {
-      return future.reject(message.error);
+      const { error: originalError } = message;
+      let error;
+
+      if (originalError instanceof Error) {
+        error = originalError;
+      } else {
+        // this only happens in case of .toJSON on error object
+        error = new MSError(originalError.message);
+        COPY_DATA.forEach(fieldName => {
+          const mixedData = originalError[fieldName];
+          if (typeof mixedData !== 'undefined' && mixedData !== null) {
+            error[fieldName] = mixedData;
+          }
+        });
+      }
+
+      return future.reject(error);
     }
 
     return future.resolve(message.data);
