@@ -1,13 +1,13 @@
 {
   "name": "ms-amqp-transport",
-  "version": "0.4.2",
+  "version": "0.9.0",
   "description": "microservice utils based on amqp transport layer",
   "main": "./lib/index.js",
   "scripts": {
-    "compile": "if [[ $NODE_ENV != \"production\" ]]; then ./node_modules/.bin/babel -d ./lib --optional es7.objectRestSpread,es7.classProperties,es7.decorators ./src; fi",
+    "compile": "./node_modules/.bin/babel -d ./lib ./src",
     "pretest": "if [[ $NODE_ENV == \"docker\" ]]; then npm rebuild; fi",
     "prepublish": "npm run compile",
-    "test": "./node_modules/.bin/mocha --require ./test/babelhook.js --bail --timeout 10000 -R spec"
+    "test": "./node_modules/.bin/mocha"
   },
   "repository": {
     "type": "git",
@@ -20,14 +20,20 @@
   },
   "homepage": "https://github.com/makeomatic/ms-amqp-transport#readme",
   "devDependencies": {
-    "babel": "^5.8.34",
-    "babel-core": "^5.8.34",
-    "babel-eslint": "^4.1.5",
+    "babel-cli": "^6.3.17",
+    "babel-eslint": "^5.0.0-beta6",
+    "babel-plugin-transform-class-properties": "^6.3.13",
+    "babel-plugin-transform-es2015-destructuring": "^6.3.15",
+    "babel-plugin-transform-es2015-parameters": "^6.3.26",
+    "babel-plugin-transform-es2015-shorthand-properties": "^6.3.13",
+    "babel-plugin-transform-es2015-spread": "^6.3.14",
+    "babel-plugin-transform-object-rest-spread": "^6.3.13",
+    "babel-plugin-transform-strict-mode": "^6.3.13",
+    "babel-register": "^6.3.13",
     "chai": "^3.4.1",
     "eslint": "^1.10.3",
-    "eslint-config-airbnb": "^2.1.1",
+    "eslint-config-airbnb": "^3.0.0",
     "eslint-plugin-mocha": "^1.1.0",
-    "is-my-json-valid": "^2.12.3",
     "mocha": "^2.3.4"
   },
   "dependencies": {
@@ -36,7 +42,7 @@
     "common-errors": "^0.5.3",
     "eventemitter3": "^1.1.1",
     "json-stringify-safe": "^5.0.1",
-    "ms-validation": "^0.5.7",
+    "ms-validation": "^1.0.0",
     "node-uuid": "^1.4.7"
   }
 }

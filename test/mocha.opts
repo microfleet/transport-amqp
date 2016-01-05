@@ -1,0 +1,5 @@
+ --require babel-register
+ --bail
+ --timeout 10000
+ -R spec
+ 

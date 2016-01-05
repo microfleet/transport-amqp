@@ -19,12 +19,13 @@ const validator = new Validation('..', function filterFiles(filename) {
 // serialization functions
 const { jsonSerializer, jsonDeserializer, MSError } = require('./serialization.js');
 const COPY_DATA = ['code', 'name', 'errors', 'field'];
+const { InvalidOperationError, ValidationError } = Errors;
 
 class AMQPTransport extends EventEmitter {
 
   static defaultOpts = {
     name: 'amqp',
-    private: false,
+    'private': false,
     exchange: 'node-services',
     timeout: 10000,
     debug: process.env.NODE_ENV === 'development',
@@ -123,7 +124,9 @@ class AMQPTransport extends EventEmitter {
           };
 
           // open channel for communication
-          channelPromise = amqp.createQueue({ queue: amqp._config.queue || '', neck: amqp._config.neck, router });
+          channelPromise = amqp.createQueue({
+            queue: amqp._config.queue || '', neck: amqp._config.neck, router,
+          });
 
           if (amqp._config.listen) {
             // open exchange when we need to listen to routes
@@ -140,7 +143,8 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
-   * Connects to AMQP, if config.router is specified earlier, automatically invokes .consume function
+   * Connects to AMQP, if config.router is specified earlier,
+   * automatically invokes .consume function
    * @return {Promise}
    */
   connect() {
@@ -151,7 +155,9 @@ class AMQPTransport extends EventEmitter {
         case 'opening':
         case 'open':
         case 'reconnecting':
-          return Promise.reject(new Errors.InvalidOperationError('connection was already initialized, close it first'));
+          const msg = 'connection was already initialized, close it first';
+          const err = new InvalidOperationError(msg);
+          return Promise.reject(err);
         default:
           // already closed, but make sure
           amqp.close();
@@ -159,7 +165,7 @@ class AMQPTransport extends EventEmitter {
       }
     }
 
-    return Promise.fromNode((next) => {
+    return Promise.fromNode(next => {
       this._amqp = Promise.promisifyAll(new AMQP(config.connection, next));
       this._amqp.on('ready', this._onConnect);
       this._amqp.on('close', this._onClose);
@@ -174,7 +180,10 @@ class AMQPTransport extends EventEmitter {
    */
   noop = (error, data) => {
     if (this.listeners('log', true)) {
-      this.log('when replying to message with %s response could not be delivered', stringify({ error, data }, jsonSerializer));
+      this.log(
+        'when replying to message with %s response could not be delivered',
+        stringify({ error, data }, jsonSerializer)
+      );
     }
   }
 
@@ -207,7 +216,8 @@ class AMQPTransport extends EventEmitter {
       }
     }
 
-    return Promise.reject(new Errors.InvalidOperationError('connection was not initialized in the first place'));
+    const err = new InvalidOperationError('connection was not initialized in the first place');
+    return Promise.reject(err);
   }
 
   /**
@@ -255,7 +265,15 @@ class AMQPTransport extends EventEmitter {
         return Promise.fromNode(next => {
           this.log('consumer is being created on "%s"', options.queue);
 
-          consumer = amqp.consume(options.queue, this._queueOpts(params), this._onConsume(params.router), next);
+          // setup consumer
+          consumer = amqp.consume(
+            options.queue,
+            this._queueOpts(params),
+            this._onConsume(params.router),
+            next
+          );
+
+          // add error handling
           consumer.on('error', err => this.emit('error', err));
         });
       })
@@ -308,7 +326,8 @@ class AMQPTransport extends EventEmitter {
    *
    * @param {object} queue   - queue instance created by .createQueue
    * @param {string} _routes - messages sent to this route will be delivered to queue
-   * @param {object} params  - exchange parameters: https://github.com/dropbox/amqp-coffee#connectionexchangeexchangeargscallback
+   * @param {object} params  - exchange parameters:
+   *                 https://github.com/dropbox/amqp-coffee#connectionexchangeexchangeargscallback
    */
   bindExchange(queue, _routes, params = {}) {
     // make sure we have an expanded array of routes
@@ -323,7 +342,8 @@ class AMQPTransport extends EventEmitter {
 
     // empty exchange
     if (!params.exchange) {
-      return Promise.reject(new Errors.ValidationError('please specify exchange name', 500, 'params.exchange'));
+      const err = new ValidationError('please specify exchange name', 500, 'params.exchange');
+      return Promise.reject(err);
     }
 
     const { _amqp: amqp } = this;
@@ -343,7 +363,10 @@ class AMQPTransport extends EventEmitter {
           })
           .tap(() => {
             const queueName = queue.queueOptions.queue;
-            this.log('queue "%s" binded to exchange "%s" on route "%s"', queueName, exchange, route);
+            this.log(
+              'queue "%s" binded to exchange "%s" on route "%s"',
+              queueName, exchange, route
+            );
           });
         });
       });
@@ -357,7 +380,12 @@ class AMQPTransport extends EventEmitter {
    * @param   {Object} options - additional options
    */
   publish(route, message, options = {}) {
-    return this._amqp.publishAsync(this._config.exchange, route, stringify(message, jsonSerializer), this._publishOptions(options));
+    return this._amqp.publishAsync(
+      this._config.exchange,
+      route,
+      stringify(message, jsonSerializer),
+      this._publishOptions(options)
+    );
   }
 
   /**
@@ -369,11 +397,11 @@ class AMQPTransport extends EventEmitter {
    */
   publishAndWait(route, message, options = {}) {
     return this._createMessageHandler(
+      route,
+      message,
       options,
       fmt('job timeout on route "%s" - service does not work or overloaded', route),
-      (opts = {}) => {
-        return this.publish(route, message, ld.merge(opts, options));
-      }
+      this.publish
     );
   }
 
@@ -385,7 +413,12 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options] - additional options
    */
   send(queue, message, options = {}) {
-    return this._amqp.publishAsync('', queue, stringify(message, jsonSerializer), this._publishOptions(options));
+    return this._amqp.publishAsync(
+      '',
+      queue,
+      stringify(message, jsonSerializer),
+      this._publishOptions(options)
+    );
   }
 
   /**
@@ -397,11 +430,11 @@ class AMQPTransport extends EventEmitter {
    */
   sendAndWait(queue, message, options = {}) {
     return this._createMessageHandler(
+      queue,
+      message,
       options,
       fmt('job timeout on queue "%s" - service does not work or overloaded', queue),
-      (opts = {}) => {
-        return this.send(queue, message, ld.merge(opts, options));
-      }
+      this.send
     );
   }
 
@@ -413,7 +446,8 @@ class AMQPTransport extends EventEmitter {
    */
   reply(headers, message) {
     if (!headers.replyTo || !headers.correlationId) {
-      return Promise.reject(new Errors.ValidationError('replyTo and correlationId not found in headers', 400));
+      const err = new ValidationError('replyTo and correlationId not found in headers', 400);
+      return Promise.reject(err);
     }
 
     return this.send(headers.replyTo, message, { correlationId: headers.correlationId });
@@ -425,7 +459,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {String} errorMessage
    * @return {Promise}
    */
-  _createMessageHandler(options, errorMessage, publishMessage) {
+  _createMessageHandler(routing, message, options, errorMessage, publishMessage) {
     const replyTo = options.replyTo || this._replyTo;
     let promise;
 
@@ -454,25 +488,29 @@ class AMQPTransport extends EventEmitter {
 
       return promise
         .return(this)
-        .call('_createMessageHandler', options, errorMessage, publishMessage);
+        .call('_createMessageHandler', routing, message, options, errorMessage, publishMessage);
     }
 
-    const correlationId = options.correlationId = options.correlationId || uuid.v4();
-    options.replyTo = replyTo;
-
+    // slightly longer timeout, if message was not consumed in time, it will return with expiration
     return new Promise((resolve, reject) => {
       // set timer
+      const correlationId = options.correlationId || uuid.v4();
       const timeout = options.timeout || this._config.timeout;
       const timer = setTimeout(() => {
         delete this._replyQueue[correlationId];
         reject(new Errors.TimeoutError(timeout + 'ms: ' + errorMessage));
-      }, timeout); // slightly longer timeout, if message was not consumed in time, it will return with expiration
+      }, timeout);
 
       this._replyQueue[correlationId] = { resolve, reject, timer };
 
       // this is to ensure that queue is not overflown and work will not
       // be completed later on
-      return publishMessage({ expiration: Math.ceil(timeout * 0.9).toString() });
+      return publishMessage.call(this, routing, message, {
+        ...options,
+        replyTo,
+        correlationId,
+        expiration: Math.ceil(timeout * 0.9).toString(),
+      });
     });
   }
 
@@ -483,14 +521,16 @@ class AMQPTransport extends EventEmitter {
    */
   _queueOpts(opts) {
     const { neck } = opts;
+    const output = ld.omit(opts, 'neck');
+
     if (typeof neck === 'undefined') {
-      opts.noAck = true;
+      output.noAck = true;
     } else {
-      opts.noAck = false;
-      opts.prefetchCount = neck > 0 ? neck : 0;
+      output.noAck = false;
+      output.prefetchCount = neck > 0 ? neck : 0;
     }
 
-    return ld.omit(opts, 'neck');
+    return output;
   }
 
   /**
@@ -499,27 +539,30 @@ class AMQPTransport extends EventEmitter {
    * @return {Object}
    */
   _publishOptions(options = {}) {
-    // set application id
-    options.appId = this._appIDString;
-    options.headers = options.headers || {};
+    const opts = {
+      ...options,
+      appId: this._appIDString,
+    };
 
-    // append request timeout in headers
-    ld.defaults(options.headers, {
-      timeout: options.timeout || this._config.timeout,
-    });
-
-    ld.defaults(options, {
+    ld.defaults(opts, {
       confirm: true,
       mandatory: true,
+      headers: {},
     });
 
-    return options;
+    // append request timeout in headers
+    ld.defaults(opts.headers, {
+      timeout: opts.timeout || this._config.timeout,
+    });
+
+    return opts;
   }
 
   /**
    *
    * @param  {Object} message
-   * 	- @param {Object} data: a getter that returns the data in its parsed form, eg a parsed json object, a string, or the raw buffer
+   * 	- @param {Object} data: a getter that returns the data in its parsed form, eg a
+   * 													parsed json object, a string, or the raw buffer
    *  - @param {Object} raw: the raw buffer that was returned
    *  - @param {Object} properties: headers specified for the message
    *  - @param {Number} size: message body size
@@ -556,11 +599,16 @@ class AMQPTransport extends EventEmitter {
     const future = this._replyQueue[correlationId];
 
     if (!future) {
-      this.log('no recipient for the message %s and id %s', message.error || message.data, correlationId);
+      this.log(
+        'no recipient for the message %s and id %s',
+        message.error || message.data,
+        correlationId
+      );
 
       if (headers.replyTo) {
+        const msg = fmt('no recipients found for message with correlation id %s', correlationId);
         return this.reply(headers, {
-          error: new Errors.NotPermittedError(fmt('no recipients found for message with correlation id %s', correlationId)),
+          error: new Errors.NotPermittedError(msg),
         });
       }
 
