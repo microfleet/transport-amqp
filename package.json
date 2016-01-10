@@ -20,29 +20,29 @@
   },
   "homepage": "https://github.com/makeomatic/ms-amqp-transport#readme",
   "devDependencies": {
-    "babel-cli": "^6.3.17",
+    "babel-cli": "^6.4.0",
     "babel-eslint": "^5.0.0-beta6",
-    "babel-plugin-transform-class-properties": "^6.3.13",
-    "babel-plugin-transform-es2015-destructuring": "^6.3.15",
-    "babel-plugin-transform-es2015-parameters": "^6.3.26",
+    "babel-plugin-transform-class-properties": "^6.4.0",
+    "babel-plugin-transform-es2015-destructuring": "^6.4.0",
+    "babel-plugin-transform-es2015-parameters": "^6.4.2",
     "babel-plugin-transform-es2015-shorthand-properties": "^6.3.13",
-    "babel-plugin-transform-es2015-spread": "^6.3.14",
+    "babel-plugin-transform-es2015-spread": "^6.4.0",
     "babel-plugin-transform-object-rest-spread": "^6.3.13",
     "babel-plugin-transform-strict-mode": "^6.3.13",
     "babel-register": "^6.3.13",
     "chai": "^3.4.1",
     "eslint": "^1.10.3",
-    "eslint-config-airbnb": "^3.0.0",
+    "eslint-config-airbnb": "^3.1.0",
     "eslint-plugin-mocha": "^1.1.0",
     "mocha": "^2.3.4"
   },
   "dependencies": {
-    "amqp-coffee": "^0.1.25",
+    "amqp-coffee": "^0.1.26",
     "bluebird": "^3.1.1",
     "common-errors": "^0.5.3",
     "eventemitter3": "^1.1.1",
     "json-stringify-safe": "^5.0.1",
-    "ms-validation": "^1.0.0",
+    "ms-validation": "^1.0.1",
     "node-uuid": "^1.4.7"
   }
 }

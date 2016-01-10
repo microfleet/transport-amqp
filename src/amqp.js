@@ -185,13 +185,13 @@ class AMQPTransport extends EventEmitter {
         stringify({ error, data }, jsonSerializer)
       );
     }
-  }
+  };
 
   log = (...opts) => {
     if (this.listeners('log', true)) {
       this.emit('log', fmt(...opts));
     }
-  }
+  };
 
   close() {
     const { _amqp: amqp } = this;
@@ -676,7 +676,7 @@ class AMQPTransport extends EventEmitter {
 
     // re-emit ready
     this.emit('ready');
-  }
+  };
 
   /**
    * Pass in close event
@@ -687,7 +687,7 @@ class AMQPTransport extends EventEmitter {
 
     // re-emit close event
     this.emit('close', err);
-  }
+  };
 
 }
 
