@@ -505,7 +505,7 @@ class AMQPTransport extends EventEmitter {
 
       // this is to ensure that queue is not overflown and work will not
       // be completed later on
-      publishMessage.call(this, routing, message, {
+      return publishMessage.call(this, routing, message, {
         ...options,
         replyTo,
         correlationId,
