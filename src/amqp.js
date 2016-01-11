@@ -25,7 +25,7 @@ class AMQPTransport extends EventEmitter {
 
   static defaultOpts = {
     name: 'amqp',
-    'private': false,
+    private: false,
     exchange: 'node-services',
     timeout: 10000,
     debug: process.env.NODE_ENV === 'development',
@@ -505,11 +505,18 @@ class AMQPTransport extends EventEmitter {
 
       // this is to ensure that queue is not overflown and work will not
       // be completed later on
-      return publishMessage.call(this, routing, message, {
+      publishMessage.call(this, routing, message, {
         ...options,
         replyTo,
         correlationId,
         expiration: Math.ceil(timeout * 0.9).toString(),
+      })
+      .asCallback(err => {
+        if (err) {
+          clearTimeout(timer);
+          delete this._replyQueue[correlationId];
+          reject(err);
+        }
       });
     });
   }
