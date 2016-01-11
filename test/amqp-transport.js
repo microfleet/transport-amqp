@@ -7,7 +7,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   // require module
   const AMQPTransport = require('../src');
   const configuration = { exchange: 'test-exchange', connection: {} };
-  if (process.env.TEST_ENV === 'docker') {
+  if (process.env.NODE_ENV === 'docker') {
     configuration.connection.host = process.env.RABBITMQ_PORT_5672_TCP_ADDR;
     configuration.connection.port = process.env.RABBITMQ_PORT_5672_TCP_PORT;
   }

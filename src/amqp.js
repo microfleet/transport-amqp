@@ -517,6 +517,7 @@ class AMQPTransport extends EventEmitter {
       })
       .asCallback(err => {
         if (err) {
+          this.log.error('error sending message', err);
           clearTimeout(timer);
           delete this._replyQueue[correlationId];
           reject(err);
