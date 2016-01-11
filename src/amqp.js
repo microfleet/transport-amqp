@@ -511,20 +511,20 @@ class AMQPTransport extends EventEmitter {
 
       // this is to ensure that queue is not overflown and work will not
       // be completed later on
-      return publishMessage.call(this, routing, message, {
+      publishMessage.call(this, routing, message, {
         ...options,
         replyTo,
         correlationId,
         expiration: Math.ceil(timeout * 0.9).toString(),
       })
-      .asCallback(err => {
-        if (err) {
-          this.log.error('error sending message', err);
-          clearTimeout(timer);
-          delete this._replyQueue[correlationId];
-          reject(err);
-        }
+      .catch(err => {
+        this.log.error('error sending message', err);
+        clearTimeout(timer);
+        delete this._replyQueue[correlationId];
+        reject(err);
       });
+
+      return null;
     });
   }
 
