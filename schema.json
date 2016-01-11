@@ -14,6 +14,30 @@
     "exchange": {
       "type": "string"
     },
+    "exchangeArgs": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [ "direct", "fanout", "topic", "headers" ]
+        },
+        "autoDelete": {
+          "type": "boolean"
+        },
+        "passive": {
+          "type": "boolean"
+        },
+        "durable": {
+          "type": "boolean"
+        },
+        "noWait": {
+          "type": "boolean"
+        },
+        "internal": {
+          "type": "boolean"
+        }
+      }
+    },
     "timeout": {
       "type": "integer"
     },

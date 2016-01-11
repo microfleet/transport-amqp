@@ -27,6 +27,10 @@ class AMQPTransport extends EventEmitter {
     name: 'amqp',
     private: false,
     exchange: 'node-services',
+    exchangeArgs: {
+      autoDelete: false,
+      type: 'topic',
+    },
     timeout: 10000,
     debug: process.env.NODE_ENV === 'development',
     connection: {
@@ -132,7 +136,7 @@ class AMQPTransport extends EventEmitter {
             // open exchange when we need to listen to routes
             channelPromise.then(function createExchange(queueData) {
               const { channel } = queueData;
-              return amqp.bindExchange(channel, amqp._config.listen);
+              return amqp.bindExchange(channel, amqp._config.listen, amqp._config.exchangeArgs);
             });
           }
         }
