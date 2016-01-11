@@ -134,7 +134,7 @@ class AMQPTransport extends EventEmitter {
 
           if (amqp._config.listen) {
             // open exchange when we need to listen to routes
-            channelPromise.then(function createExchange(queueData) {
+            channelPromise = channelPromise.then(function createExchange(queueData) {
               const { channel } = queueData;
               return amqp.bindExchange(channel, amqp._config.listen, amqp._config.exchangeArgs);
             });
