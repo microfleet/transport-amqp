@@ -258,7 +258,7 @@ class AMQPTransport extends EventEmitter {
         });
       })
       .then(_options => {
-        options = _options;
+        options = { ..._options };
 
         this.log('queue "%s" created', options.queue);
 
@@ -320,7 +320,9 @@ class AMQPTransport extends EventEmitter {
 
         // declare _replyTo queueName
         this._replyTo = options.queue;
-        this.emit('private-queue-ready');
+        setImmediate(() => {
+          this.emit('private-queue-ready');
+        });
       });
   }
 
