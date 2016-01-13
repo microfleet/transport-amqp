@@ -1,6 +1,6 @@
 {
   "name": "ms-amqp-transport",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "description": "microservice utils based on amqp transport layer",
   "main": "./lib/index.js",
   "scripts": {

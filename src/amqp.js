@@ -518,7 +518,7 @@ class AMQPTransport extends EventEmitter {
         expiration: Math.ceil(timeout * 0.9).toString(),
       })
       .catch(err => {
-        this.log.error('error sending message', err);
+        this.log('error sending message', err);
         clearTimeout(timer);
         delete this._replyQueue[correlationId];
         reject(err);
