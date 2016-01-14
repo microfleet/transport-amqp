@@ -1,5 +1,4 @@
 const Promise = require('bluebird');
-const AMQP = require('amqp-coffee');
 const uuid = require('node-uuid');
 const Errors = require('common-errors');
 const stringify = require('json-stringify-safe');
@@ -18,8 +17,14 @@ const validator = new Validation('..', function filterFiles(filename) {
 
 // serialization functions
 const { jsonSerializer, jsonDeserializer, MSError } = require('./serialization.js');
-const COPY_DATA = ['code', 'name', 'errors', 'field'];
+const COPY_DATA = ['code', 'name', 'errors', 'field', 'reason'];
 const { InvalidOperationError, ValidationError } = Errors;
+
+// Promisify stuff
+['Exchange', 'Queue', 'Connection', 'Consumer', 'Publisher'].forEach(name => {
+  Promise.promisifyAll(require(`amqp-coffee/bin/src/lib/${name}`).prototype);
+});
+const AMQP = require('amqp-coffee');
 
 class AMQPTransport extends EventEmitter {
 
@@ -70,8 +75,13 @@ class AMQPTransport extends EventEmitter {
     this._replyTo = null;
     this._replyQueue = {};
 
+    // log <-> noop
+    this.log = ld.noop;
+    this.on('newListener', this._onListener);
+    this.on('removeListener', this._onRemoveListener);
+
     // add simple debugger
-    if (this._config.debug) {
+    if (config.debug) {
       this.on('log', (message) => {
         process.stdout.write('> ' + message + '\n');
       });
@@ -88,6 +98,14 @@ class AMQPTransport extends EventEmitter {
 
     // Cached serialized value
     this._appIDString = stringify(this._appID);
+  }
+
+  /**
+   * Override EE3 on, so that we have newListener again
+   */
+  on() {
+    this.emit('newListener', arguments[0]);
+    super.on.apply(this, arguments);
   }
 
   /**
@@ -108,41 +126,57 @@ class AMQPTransport extends EventEmitter {
     }
 
     const amqp = new AMQPTransport(config);
+    const queue = amqp._config.queue || '';
+    const neck = amqp._config.neck;
+    const listen = amqp._config.listen;
+    const exchangeArgs = amqp._config.exchangeArgs;
 
-    return amqp
-      .connect()
-      .tap(function establishQueuesAndExchanges() {
-        let channelPromise;
-        if (typeof messageHandler === 'function' || amqp._config.listen) {
-          const router = function router(message, headers, actions) {
-            let next;
-            if (!headers.replyTo || !headers.correlationId) {
-              next = amqp.noop;
-            } else {
-              next = function replyToRequest(error, data) {
-                return amqp.reply(headers, { error, data }).catch(amqp.noop);
-              };
-            }
+    function establishQueuesAndExchanges() {
+      if (typeof messageHandler !== 'function' && !listen) {
+        return null;
+      }
 
-            messageHandler(message, headers, actions, next);
+      function router(message, headers, actions) {
+        let next;
+        if (!headers.replyTo || !headers.correlationId) {
+          next = amqp.noop;
+        } else {
+          next = function replyToRequest(error, data) {
+            return amqp.reply(headers, { error, data }).catch(amqp.noop);
           };
-
-          // open channel for communication
-          channelPromise = amqp.createQueue({
-            queue: amqp._config.queue || '', neck: amqp._config.neck, router,
-          });
-
-          if (amqp._config.listen) {
-            // open exchange when we need to listen to routes
-            channelPromise = channelPromise.then(function createExchange(queueData) {
-              const { channel } = queueData;
-              return amqp.bindExchange(channel, amqp._config.listen, amqp._config.exchangeArgs);
-            });
-          }
         }
 
-        return channelPromise;
-      })
+        return messageHandler(message, headers, actions, next);
+      }
+
+      // create queue: either private or public for shared task pool
+      function establishQueue() {
+        return amqp.createQueue({ queue, neck, router });
+      }
+
+      // bind to an opened exchange once connected
+      function createExchange(queueData) {
+        if (!listen) {
+          return null;
+        }
+
+        return amqp.bindExchange(queueData.queue, listen, exchangeArgs);
+      }
+
+      // pipeline for establishing consumer
+      // TODO: add error handler here
+      function establishConsumer() {
+        return establishQueue().then(createExchange);
+      }
+
+      return establishConsumer().then(() => {
+        // make sure we recreate queue and establish consumer on reconnect
+        amqp.on('ready', establishConsumer);
+      });
+    }
+
+    return amqp.connect()
+      .tap(establishQueuesAndExchanges)
       .return(amqp);
   }
 
@@ -170,11 +204,11 @@ class AMQPTransport extends EventEmitter {
     }
 
     return Promise.fromNode(next => {
-      this._amqp = Promise.promisifyAll(new AMQP(config.connection, next));
+      this._amqp = new AMQP(config.connection, next);
       this._amqp.on('ready', this._onConnect);
       this._amqp.on('close', this._onClose);
-      return this;
-    });
+    })
+    .return(this);
   }
 
   /**
@@ -191,10 +225,8 @@ class AMQPTransport extends EventEmitter {
     }
   };
 
-  log = (...opts) => {
-    if (this.listeners('log', true)) {
-      this.emit('log', fmt(...opts));
-    }
+  _log = (...opts) => {
+    this.emit('log', fmt(...opts));
   };
 
   close() {
@@ -233,7 +265,7 @@ class AMQPTransport extends EventEmitter {
   createQueue(_params) {
     const { _amqp: amqp } = this;
 
-    let channel;
+    let queue;
     let consumer;
     let options;
     let params;
@@ -251,15 +283,12 @@ class AMQPTransport extends EventEmitter {
 
     return amqp
       .queueAsync(params)
-      .then(function declareQueue(_channel) {
-        channel = _channel;
-        return Promise.fromCallback(function declareQueueCallback(next) {
-          channel.declare(next);
-        });
+      .then(function declareQueue(_queue) {
+        queue = _queue;
+        return queue.declareAsync();
       })
       .then(_options => {
         options = { ..._options };
-
         this.log('queue "%s" created', options.queue);
 
         if (!params.router) {
@@ -281,13 +310,7 @@ class AMQPTransport extends EventEmitter {
           consumer.on('error', err => this.emit('error', err));
         });
       })
-      .then(() => {
-        return {
-          channel,
-          consumer,
-          options,
-        };
-      });
+      .then(() => ({ queue, consumer, options }));
   }
 
   /**
@@ -296,14 +319,15 @@ class AMQPTransport extends EventEmitter {
   createPrivateQueue() {
     this._replyTo = false;
 
-    return this.createQueue({ queue: '', router: this._privateMessageRouter })
+    return this
+      .createQueue({ queue: '', router: this._privateMessageRouter })
       .bind(this)
       .then(function privateQueueCreated({ consumer, options }) {
         // remove existing listeners
         consumer.removeAllListeners('error');
 
         // consume errors
-        consumer.on('error', (err) => {
+        consumer.on('error', err => {
           if (err.replyCode === 404 && err.message.indexOf(options.queue) !== -1) {
             // https://github.com/dropbox/amqp-coffee#consumer-event-error
             // handle consumer error on reconnect and close consumer
@@ -347,35 +371,31 @@ class AMQPTransport extends EventEmitter {
     });
 
     // empty exchange
-    if (!params.exchange) {
+    const { exchange } = params;
+    if (!exchange) {
       const err = new ValidationError('please specify exchange name', 500, 'params.exchange');
       return Promise.reject(err);
     }
 
-    const { _amqp: amqp } = this;
-    return amqp
-      .exchangeAsync(params)
-      .then(function createdExchange(exchange) {
-        return Promise.fromNode(function declareExchange(next) {
-          exchange.declare(next);
-        });
-      })
-      .then(() => {
-        const { exchange } = params;
-
-        return Promise.resolve(routes).bind(this).map(function bindRoutes(route) {
-          return Promise.fromNode(function bindRoute(next) {
-            queue.bind(exchange, route, next);
-          })
-          .tap(() => {
-            const queueName = queue.queueOptions.queue;
-            this.log(
-              'queue "%s" binded to exchange "%s" on route "%s"',
-              queueName, exchange, route
-            );
-          });
+    return this
+    ._amqp
+    .exchangeAsync(params)
+    .call('declareAsync')
+    .catch({ replyCode: 406 }, err => {
+      const format = '[406] error declaring queue with params %s: %s';
+      this.log(format, JSON.stringify(params), err.replyText);
+    })
+    .then(() => {
+      const srv = this;
+      return Promise.map(routes, function bindRoutes(route) {
+        return queue
+        .bindAsync(exchange, route)
+        .tap(() => {
+          const queueName = queue.queueOptions.queue;
+          srv.log('queue "%s" binded to exchange "%s" on route "%s"', queueName, exchange, route);
         });
       });
+    });
   }
 
   /**
@@ -615,7 +635,7 @@ class AMQPTransport extends EventEmitter {
     if (!future) {
       this.log(
         'no recipient for the message %s and id %s',
-        message.error || message.data,
+        message.error || message.data || message,
         correlationId
       );
 
@@ -701,6 +721,30 @@ class AMQPTransport extends EventEmitter {
 
     // re-emit close event
     this.emit('close', err);
+  };
+
+  /**
+   * Changes sets log to an emitter
+   * @param  {String} event
+   */
+  _onListener = (event) => {
+    if (event !== 'log' || this.listeners('log').length > 0) {
+      return;
+    }
+
+    this.log = this._log;
+  };
+
+  /**
+   * Sets .log to noop
+   * @param  {String} event
+   */
+  _onRemoveListener = (event) => {
+    if (event !== 'log' || this.listeners('log').length > 0) {
+      return;
+    }
+
+    this.log = ld.noop;
   };
 
 }
