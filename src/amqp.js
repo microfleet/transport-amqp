@@ -45,6 +45,11 @@ class AMQPTransport extends EventEmitter {
       password: 'guest',
       vhost: '/',
       temporaryChannelTimeout: 6000,
+      clientProperties: {
+        capabilities: {
+          consumer_cancel_notify: true,
+        },
+      },
     },
   };
 
@@ -164,15 +169,47 @@ class AMQPTransport extends EventEmitter {
       }
 
       // pipeline for establishing consumer
-      // TODO: add error handler here
       function establishConsumer() {
-        return establishQueue().then(createExchange);
+        return establishQueue()
+          .tap(createExchange)
+          .then(function establishErrorHandlers({ consumer }) {
+            consumer.on('error', function handleError(err) {
+              // https://www.rabbitmq.com/amqp-0-9-1-reference.html -
+              switch (err.replyCode) {
+                case 311:
+                case 313:
+                  this.log('error working with a channel:', err);
+                  return null;
+
+                // access-refused	403
+                //  The client attempted to work with a server entity
+                //  to which it has no access due to security settings.
+                // not-found	404
+                //  The client attempted to work with a server entity that does not exist.
+                // resource-locked	405
+                //  The client attempted to work with a server entity
+                //  to which it has no access because another client is working with it.
+                // precondition-failed	406
+                //  The client requested a method that was not allowed
+                //  because some precondition failed.
+                default:
+                  this.log('re-establishing connection after %d', err.replyCode);
+
+                  // don't wait for this to complete
+                  consumer.removeAllListeners();
+                  // eat errors
+                  consumer.on('error', ld.noop);
+                  consumer.close();
+
+                  // TODO: add exponential back-off
+                  return Promise.delay(500).then(establishConsumer);
+              }
+            });
+          });
       }
 
-      return establishConsumer().then(() => {
-        // make sure we recreate queue and establish consumer on reconnect
-        amqp.on('ready', establishConsumer);
-      });
+      // make sure we recreate queue and establish consumer on reconnect
+      return establishConsumer().then(() => amqp.on('ready', establishConsumer));
     }
 
     return amqp.connect()
