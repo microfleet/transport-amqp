@@ -4,7 +4,6 @@
   "main": "./lib/index.js",
   "scripts": {
     "compile": "./node_modules/.bin/babel -d ./lib ./src",
-    "pretest": "if [[ $NODE_ENV == \"docker\" ]]; then npm rebuild; fi",
     "prepublish": "npm run compile",
     "test": "./node_modules/.bin/mocha",
     "postinstall": "cd ./node_modules/amqp-coffee/ && npm install",
