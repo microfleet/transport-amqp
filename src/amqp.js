@@ -444,7 +444,7 @@ class AMQPTransport extends EventEmitter {
    */
   publish(route, message, options = {}) {
     return this._amqp.publishAsync(
-      this._config.exchange,
+      options.exchange || this._config.exchange,
       route,
       stringify(message, jsonSerializer),
       this._publishOptions(options)
@@ -477,7 +477,7 @@ class AMQPTransport extends EventEmitter {
    */
   send(queue, message, options = {}) {
     return this._amqp.publishAsync(
-      '',
+      options.exchange || '',
       queue,
       stringify(message, jsonSerializer),
       this._publishOptions(options)
@@ -607,6 +607,9 @@ class AMQPTransport extends EventEmitter {
   /**
    * Specifies default publishing options
    * @param  {Object} options
+   * @param  {String} options.exchange - will be overwritten by exchange thats passed
+   *                                   in the publish/send methods
+   *                                   https://github.com/dropbox/amqp-coffee/blob/6d99cf4c9e312c9e5856897ab33458afbdd214e5/src/lib/Publisher.coffee#L90
    * @return {Object}
    */
   _publishOptions(options = {}) {
