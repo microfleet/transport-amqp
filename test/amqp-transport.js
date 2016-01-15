@@ -2,15 +2,18 @@ const chai = require('chai');
 const expect = chai.expect;
 const Errors = require('common-errors');
 const Promise = require('bluebird');
+const ld = require('lodash');
 
 describe('AMQPTransport', function AMQPTransportTestSuite() {
   // require module
   const AMQPTransport = require('../src');
-  const configuration = { exchange: 'test-exchange', connection: {} };
-  if (process.env.NODE_ENV === 'docker') {
-    configuration.connection.host = process.env.RABBITMQ_PORT_5672_TCP_ADDR;
-    configuration.connection.port = process.env.RABBITMQ_PORT_5672_TCP_PORT;
-  }
+  const configuration = {
+    exchange: 'test-exchange',
+    connection: {
+      host: process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost',
+      port: process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672,
+    },
+  };
 
   it('is able to be initialized', () => {
     const amqp = new AMQPTransport(configuration);
@@ -50,7 +53,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   it('is able to connect via helper function', () => {
     return AMQPTransport
       .connect(configuration)
-      .then((amqp) => {
+      .then(amqp => {
         expect(amqp._amqp.state).to.be.eq('open');
         this.amqp = amqp;
       });
@@ -68,7 +71,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       .connect(opts, function listener(message, headers, actions, callback) {
         callback(null, message + '-response');
       })
-      .then((amqp) => {
+      .then(amqp => {
         expect(amqp._amqp.state).to.be.eq('open');
         this.amqp_consumer = amqp;
       });
@@ -82,9 +85,12 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
   it('is able to send messages directly to a queue', () => {
     const privateQueue = this.amqp._replyTo;
-    return this.amqp_consumer.sendAndWait(privateQueue, 'test-message-direct-queue')
-      .catch({ name: 'NotPermittedError' }, (err) => {
-        expect(err.message).to.match(/no recipients found for message with correlation id/);
+    return this.amqp_consumer
+      .sendAndWait(privateQueue, 'test-message-direct-queue')
+      .reflect()
+      .then(promise => {
+        expect(promise.isRejected()).to.be.eq(true);
+        expect(promise.reason().name).to.be.eq('NotPermittedError');
       });
   });
 
@@ -95,12 +101,10 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     });
 
     it('able to publish multiple messages at once', () => {
-      const promises = [];
       const transport = this.concurrent;
-      for (let i = 0; i < 5; i++) {
-        promises.push(transport.publishAndWait('test.default', `ok.${i}`));
-      }
-
+      const promises = ld.times(5, (i) => {
+        return transport.publishAndWait('test.default', `ok.${i}`);
+      });
       return Promise.all(promises);
     });
 
