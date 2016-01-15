@@ -1,17 +1,18 @@
 {
   "name": "ms-amqp-transport",
-  "version": "0.11.3",
   "description": "microservice utils based on amqp transport layer",
   "main": "./lib/index.js",
   "scripts": {
     "compile": "./node_modules/.bin/babel -d ./lib ./src",
     "pretest": "if [[ $NODE_ENV == \"docker\" ]]; then npm rebuild; fi",
     "prepublish": "npm run compile",
-    "test": "./node_modules/.bin/mocha"
+    "test": "./node_modules/.bin/mocha",
+    "postinstall": "cd ./node_modules/amqp-coffee/ && npm install",
+    "semantic-release": "semantic-release pre && npm publish && semantic-release post"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/makeomatic/ms-amqp-transport.git"
+    "url": "https://github.com/makeomatic/ms-amqp-transport.git"
   },
   "author": "Vitaly Aminev <v@makeomatic.ru>",
   "license": "MIT",
@@ -34,13 +35,14 @@
     "eslint": "^1.10.3",
     "eslint-config-airbnb": "^3.1.0",
     "eslint-plugin-mocha": "^1.1.0",
-    "mocha": "^2.3.4"
+    "mocha": "^2.3.4",
+    "semantic-release": "^4.3.5"
   },
   "peerDependencies": {
     "bunyan": "^1.5.1"
   },
   "dependencies": {
-    "amqp-coffee": "^0.1.26",
+    "amqp-coffee": "github:dropbox/amqp-coffee#feature/0.1.27",
     "bluebird": "^3.1.1",
     "common-errors": "^0.5.3",
     "eventemitter3": "^1.1.1",

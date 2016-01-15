@@ -173,38 +173,46 @@ class AMQPTransport extends EventEmitter {
         return establishQueue()
           .tap(createExchange)
           .then(function establishErrorHandlers({ consumer }) {
-            consumer.on('error', function handleError(err) {
+            // invoke to rebind
+            function rebind(err, res) {
+              const msg = err && err.replyCode || err;
+              amqp.log('re-establishing connection after "%s"', msg, res || '');
+
+              // don't wait for this to complete
+              consumer.removeAllListeners();
+              // eat errors
+              consumer.on('error', ld.noop);
+              consumer.close();
+
+              return Promise.delay(500).then(establishConsumer);
+            }
+
+            // access-refused	403
+            //  The client attempted to work with a server entity
+            //  to which it has no access due to security settings.
+            // not-found	404
+            //  The client attempted to work with a server entity that does not exist.
+            // resource-locked	405
+            //  The client attempted to work with a server entity
+            //  to which it has no access because another client is working with it.
+            // precondition-failed	406
+            //  The client requested a method that was not allowed
+            //  because some precondition failed.
+            consumer.on('error', function handleError(err, res) {
               // https://www.rabbitmq.com/amqp-0-9-1-reference.html -
               switch (err.replyCode) {
+                // ignore errors
                 case 311:
                 case 313:
-                  this.log('error working with a channel:', err);
+                  amqp.log('error working with a channel:', err, res);
                   return null;
 
-                // access-refused	403
-                //  The client attempted to work with a server entity
-                //  to which it has no access due to security settings.
-                // not-found	404
-                //  The client attempted to work with a server entity that does not exist.
-                // resource-locked	405
-                //  The client attempted to work with a server entity
-                //  to which it has no access because another client is working with it.
-                // precondition-failed	406
-                //  The client requested a method that was not allowed
-                //  because some precondition failed.
                 default:
-                  this.log('re-establishing connection after %d', err.replyCode);
-
-                  // don't wait for this to complete
-                  consumer.removeAllListeners();
-                  // eat errors
-                  consumer.on('error', ld.noop);
-                  consumer.close();
-
-                  // TODO: add exponential back-off
-                  return Promise.delay(500).then(establishConsumer);
+                  return rebind(err, res);
               }
             });
+
+            consumer.on('cancel', rebind);
           });
       }
 
