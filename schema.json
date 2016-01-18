@@ -38,6 +38,26 @@
         }
       }
     },
+    "defaultOpts": {
+      "type": "object",
+      "properties": {
+        "confirm": {
+          "type": "boolean"
+        },
+        "mandatory": {
+          "type": "boolean"
+        },
+        "immediate": {
+          "type": "boolean"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        }
+      }
+    },
     "timeout": {
       "type": "integer"
     },

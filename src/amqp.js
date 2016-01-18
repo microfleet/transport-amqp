@@ -36,6 +36,11 @@ class AMQPTransport extends EventEmitter {
       autoDelete: false,
       type: 'topic',
     },
+    defaultOpts: {
+      confirm: false,
+      mandatory: false,
+      headers: {},
+    },
     timeout: 10000,
     debug: process.env.NODE_ENV === 'development',
     connection: {
@@ -103,6 +108,7 @@ class AMQPTransport extends EventEmitter {
 
     // Cached serialized value
     this._appIDString = stringify(this._appID);
+    this._defaultOpts = config.defaultOpts;
   }
 
   /**
@@ -626,11 +632,7 @@ class AMQPTransport extends EventEmitter {
       appId: this._appIDString,
     };
 
-    ld.defaults(opts, {
-      confirm: true,
-      mandatory: true,
-      headers: {},
-    });
+    ld.defaults(opts, this._defaultOpts);
 
     // append request timeout in headers
     ld.defaults(opts.headers, {
