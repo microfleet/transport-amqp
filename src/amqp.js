@@ -8,6 +8,11 @@ const ld = require('lodash');
 const pkg = require('../package.json');
 const path = require('path');
 const { format: fmt } = require('util');
+const debug = require('debug')('ms-amqp-transport');
+const latency = time => {
+  const execTime = process.hrtime(time);
+  return execTime[0] * 1000 + (+(execTime[1] / 1000000).toFixed(3));
+};
 
 // init validation
 const Validation = require('ms-validation');
@@ -37,8 +42,10 @@ class AMQPTransport extends EventEmitter {
       type: 'topic',
     },
     defaultOpts: {
+      deliveryMode: 1,
       confirm: false,
       mandatory: false,
+      immediate: false,
       headers: {},
     },
     timeout: 10000,
@@ -83,7 +90,7 @@ class AMQPTransport extends EventEmitter {
 
     // setup instance
     this._replyTo = null;
-    this._replyQueue = {};
+    this._replyQueue = new Map();
 
     // log <-> noop
     this.log = ld.noop;
@@ -473,13 +480,17 @@ class AMQPTransport extends EventEmitter {
    * @return {Promise}
    */
   publishAndWait(route, message, options = {}) {
+    const time = process.hrtime();
     return this._createMessageHandler(
       route,
       message,
       options,
       fmt('job timeout on route "%s" - service does not work or overloaded', route),
       this.publish
-    );
+    )
+    .tap(() => {
+      debug('publishAndWait took %s ms', latency(time));
+    });
   }
 
   /**
@@ -531,6 +542,37 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
+   * Creates local listener for when a private queue is up
+   * @return {Promise}
+   */
+  _awaitPrivateQueue() {
+    return new Promise((resolve, reject) => {
+      let done;
+      let error;
+
+      done = function onReady() {
+        this.removeAllListeners('error', error);
+        resolve(this);
+      };
+
+      error = function onError(err) {
+        this.removeListener('private-queue-ready', done);
+        reject(err);
+      };
+
+      this.once('private-queue-ready', done);
+      this.once('error', error);
+    });
+  }
+
+  _initTimeout(reject, timeout, correlationId, errorMessage) {
+    return setTimeout(() => {
+      this._replyQueue.delete(correlationId);
+      reject(new Errors.TimeoutError(timeout + 'ms: ' + errorMessage));
+    }, timeout);
+  }
+
+  /**
    * Creates response message handler and sets timeout on the response
    * @param  {Object} options
    * @param  {String} errorMessage
@@ -538,34 +580,22 @@ class AMQPTransport extends EventEmitter {
    */
   _createMessageHandler(routing, message, options, errorMessage, publishMessage) {
     const replyTo = options.replyTo || this._replyTo;
-    let promise;
+    const time = process.hrtime();
 
     if (!replyTo) {
+      let promise;
       if (replyTo === false) {
-        promise = new Promise((resolve, reject) => {
-          let done;
-          let error;
-
-          done = function onReady() {
-            this.removeAllListeners('error', error);
-            resolve(this);
-          };
-
-          error = function onError(err) {
-            this.removeListener('private-queue-ready', done);
-            reject(err);
-          };
-
-          this.once('private-queue-ready', done);
-          this.once('error', error);
-        });
+        promise = this._awaitPrivateQueue();
       } else {
         promise = this.createPrivateQueue();
       }
 
       return promise
         .return(this)
-        .call('_createMessageHandler', routing, message, options, errorMessage, publishMessage);
+        .call('_createMessageHandler', routing, message, options, errorMessage, publishMessage)
+        .tap(() => {
+          debug('private queue created in %s', latency(time));
+        });
     }
 
     // slightly longer timeout, if message was not consumed in time, it will return with expiration
@@ -573,12 +603,12 @@ class AMQPTransport extends EventEmitter {
       // set timer
       const correlationId = options.correlationId || uuid.v4();
       const timeout = options.timeout || this._config.timeout;
-      const timer = setTimeout(() => {
-        delete this._replyQueue[correlationId];
-        reject(new Errors.TimeoutError(timeout + 'ms: ' + errorMessage));
-      }, timeout);
+      const timer = this._initTimeout(reject, timeout, correlationId, errorMessage);
 
-      this._replyQueue[correlationId] = { resolve, reject, timer };
+      // push into queue
+      this._replyQueue.set(correlationId, { resolve, reject, timer, time });
+
+      debug('message pushed into reply queue in %s', latency(time));
 
       // this is to ensure that queue is not overflown and work will not
       // be completed later on
@@ -588,10 +618,13 @@ class AMQPTransport extends EventEmitter {
         correlationId,
         expiration: Math.ceil(timeout * 0.9).toString(),
       })
+      .tap(() => {
+        debug('message published in %s', latency(time));
+      })
       .catch(err => {
         this.log('error sending message', err);
         clearTimeout(timer);
-        delete this._replyQueue[correlationId];
+        this._replyQueue.delete(correlationId);
         reject(err);
       });
 
@@ -680,7 +713,9 @@ class AMQPTransport extends EventEmitter {
    */
   _privateMessageRouter(message, headers) {
     const { correlationId } = headers;
-    const future = this._replyQueue[correlationId];
+    const future = this._replyQueue.get(correlationId);
+
+    debug('response returned in %s', latency(future.time));
 
     if (!future) {
       this.log(
@@ -701,7 +736,7 @@ class AMQPTransport extends EventEmitter {
     }
 
     clearTimeout(future.timer);
-    delete this._replyQueue[correlationId];
+    this._replyQueue.delete(correlationId);
 
     if (message.error) {
       const { error: originalError } = message;
