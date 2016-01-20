@@ -22,26 +22,28 @@ const opts = Object.assign({}, configuration, {
 
 // publisher
 const publisher = new AMQPTransport(configuration);
-const consumer = AMQPTransport.connect(opts, listener);
 
 Promise.join(
-  consumer,
+  AMQPTransport.connect(opts, listener),
   publisher.connect()
 )
 .then(() => {
   const suite = new Benchmark.Suite('RabbitMQ');
 
-  suite.add('Round-trip', deferred => {
-    return publisher
-      .publishAndWait('test.default', 'test-message')
-      .then(() => {
-        deferred.resolve();
-      });
+  suite.add('Round-trip', {
+    defer: true,
+    fn: function test(deferred) {
+      return publisher
+        .publishAndWait('test.default', 'test-message')
+        .then(() => {
+          deferred.resolve();
+        });
+    },
   })
   .on('complete', function suiteCompleted() {
     const stats = this.filter('fastest')[0].stats;
     const times = this.filter('fastest')[0].times;
-    console.log('Mean is', stats.mean * 1000000 + 'ms', '~' + stats.rme + '%');
+    console.log('Mean is', stats.mean * 1000 + 'ms', '~' + stats.rme + '%');
     console.log('Mean is', times.elapsed + 's', times.period + 's');
   })
   .run({ async: false, defer: true });
