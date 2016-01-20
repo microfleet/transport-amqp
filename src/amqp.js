@@ -37,6 +37,7 @@ class AMQPTransport extends EventEmitter {
     name: 'amqp',
     private: false,
     exchange: 'node-services',
+    rebindDelay: 500,
     exchangeArgs: {
       autoDelete: false,
       type: 'topic',
@@ -182,8 +183,8 @@ class AMQPTransport extends EventEmitter {
       }
 
       // pipeline for establishing consumer
-      function establishConsumer() {
-        return establishQueue()
+      function establishConsumer(catchError) {
+        const promise = establishQueue()
           .tap(createExchange)
           .then(function establishErrorHandlers({ consumer }) {
             // invoke to rebind
@@ -197,7 +198,7 @@ class AMQPTransport extends EventEmitter {
               consumer.on('error', ld.noop);
               consumer.close();
 
-              return Promise.delay(500).then(establishConsumer);
+              return Promise.delay(amqp._config.rebindDelay).then(establishConsumer);
             }
 
             // access-refused	403
@@ -227,10 +228,24 @@ class AMQPTransport extends EventEmitter {
 
             consumer.on('cancel', rebind);
           });
+
+        if (catchError === false) {
+          return promise;
+        }
+
+        return promise.reflect().then(result => {
+          if (result.isFulfilled()) {
+            return null;
+          }
+
+          amqp.log('failed to reconnect:', result.reason());
+
+          return Promise.delay(amqp._config.rebindDelay).then(establishConsumer);
+        });
       }
 
       // make sure we recreate queue and establish consumer on reconnect
-      return establishConsumer().then(() => amqp.on('ready', establishConsumer));
+      return establishConsumer(false).then(() => amqp.on('ready', establishConsumer));
     }
 
     return amqp.connect()

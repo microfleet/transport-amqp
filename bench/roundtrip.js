@@ -1,6 +1,9 @@
+'use strict';
+
 const Promise = require('bluebird');
 const Benchmark = require('benchmark');
 const AMQPTransport = require('../lib');
+const fmt = require('util').format;
 const configuration = {
   exchange: 'test-exchange',
   connection: {
@@ -22,20 +25,21 @@ const opts = Object.assign({}, configuration, {
 
 // publisher
 const publisher = new AMQPTransport(configuration);
+let messagesSent = 0;
 
 Promise.join(
   AMQPTransport.connect(opts, listener),
   publisher.connect()
 )
-.then(() => {
+.spread(consumer => {
   const suite = new Benchmark.Suite('RabbitMQ');
-
   suite.add('Round-trip', {
     defer: true,
     fn: function test(deferred) {
       return publisher
         .publishAndWait('test.default', 'test-message')
         .then(() => {
+          messagesSent++;
           deferred.resolve();
         });
     },
@@ -43,8 +47,11 @@ Promise.join(
   .on('complete', function suiteCompleted() {
     const stats = this.filter('fastest')[0].stats;
     const times = this.filter('fastest')[0].times;
-    console.log('Mean is', stats.mean * 1000 + 'ms', '~' + stats.rme + '%');
-    console.log('Mean is', times.elapsed + 's', times.period + 's');
+    process.stdout.write(fmt('Messages sent: %s\n', messagesSent));
+    process.stdout.write(fmt('Mean is', stats.mean * 1000 + 'ms', '~' + stats.rme + '%\n'));
+    process.stdout.write(fmt('Total time is', times.elapsed + 's', times.period + 's\n'));
+    consumer.close();
+    publisher.close();
   })
   .run({ async: false, defer: true });
 });
