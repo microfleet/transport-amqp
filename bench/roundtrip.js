@@ -1,0 +1,48 @@
+const Promise = require('bluebird');
+const Benchmark = require('benchmark');
+const AMQPTransport = require('../lib');
+const configuration = {
+  exchange: 'test-exchange',
+  connection: {
+    host: process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost',
+    port: process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672,
+  },
+};
+
+// simple back-forth
+function listener(message, headers, actions, callback) {
+  callback(null, 'ok');
+}
+
+// opts for consumer
+const opts = Object.assign({}, configuration, {
+  queue: 'test-queue',
+  listen: 'test.default',
+});
+
+// publisher
+const publisher = new AMQPTransport(configuration);
+const consumer = AMQPTransport.connect(opts, listener);
+
+Promise.join(
+  consumer,
+  publisher.connect()
+)
+.then(() => {
+  const suite = new Benchmark.Suite('RabbitMQ');
+
+  suite.add('Round-trip', deferred => {
+    return publisher
+      .publishAndWait('test.default', 'test-message')
+      .then(() => {
+        deferred.resolve();
+      });
+  })
+  .on('complete', function suiteCompleted() {
+    const stats = this.filter('fastest')[0].stats;
+    const times = this.filter('fastest')[0].times;
+    console.log('Mean is', stats.mean * 1000000 + 'ms', '~' + stats.rme + '%');
+    console.log('Mean is', times.elapsed + 's', times.period + 's');
+  })
+  .run({ async: false, defer: true });
+});
