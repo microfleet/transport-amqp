@@ -10,6 +10,18 @@ const configuration = {
     host: process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost',
     port: process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672,
   },
+  defaultQueueOpts: {
+    autoDelete: true,
+    arguments: {
+      'x-queue-mode': 'lazy',
+    },
+  },
+  privateQueueOpts: {
+    autoDelete: true,
+    arguments: {
+      'x-queue-mode': 'lazy',
+    },
+  },
 };
 
 // simple back-forth
@@ -19,8 +31,8 @@ function listener(message, headers, actions, callback) {
 
 // opts for consumer
 const opts = Object.assign({}, configuration, {
-  queue: 'test-queue',
-  listen: 'test.default',
+  queue: 'tq',
+  listen: 'tq',
 });
 
 // publisher
@@ -37,7 +49,7 @@ Promise.join(
     defer: true,
     fn: function test(deferred) {
       return publisher
-        .publishAndWait('test.default', 'test-message')
+        .publishAndWait('tq', 'tq')
         .then(() => {
           messagesSent++;
           deferred.resolve();
