@@ -1,7 +1,7 @@
 const Errors = require('common-errors');
 const MSError = Errors.helpers.generateClass('MSError', {
   globalize: false,
-  args: [ 'message' ],
+  args: ['message'],
 });
 
 /**
@@ -17,9 +17,10 @@ function serializeError(error) {
 
   serialized.data = Object
     .getOwnPropertyNames(error)
-    .map(function transferErrorContext(key) {
-      return { key, value: error[key] };
-    });
+    .map(key => ({
+      key,
+      value: error[key],
+    }));
 
   return serialized;
 }
@@ -31,11 +32,10 @@ function serializeError(error) {
  */
 function deserializeError(error) {
   const deserialized = new MSError();
-  error.forEach(function transferSerializedErrorContext(data) {
+  error.forEach(data => {
     deserialized[data.key] = data.value;
   });
 
-  Errors.prependCurrentStack(deserialized);
   return deserialized;
 }
 

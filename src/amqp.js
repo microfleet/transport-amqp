@@ -16,9 +16,9 @@ function generateErrorMessage(routing, timeout) {
 
 // init validation
 const Validation = require('ms-validation');
-const validator = new Validation('..', function filterFiles(filename) {
-  return path.extname(filename) === '.json' && path.basename(filename, '.json') !== 'package';
-});
+const validator = new Validation('..', filename => (
+  path.extname(filename) === '.json' && path.basename(filename, '.json') !== 'package'
+));
 
 // serialization functions
 const { jsonSerializer, jsonDeserializer, MSError } = require('./serialization.js');
@@ -106,7 +106,7 @@ class AMQPTransport extends EventEmitter {
     // add simple debugger
     if (config.debug) {
       this.on('log', (message) => {
-        process.stdout.write('> ' + message + '\n');
+        process.stdout.write(`> ${message}\n`);
       });
     }
 

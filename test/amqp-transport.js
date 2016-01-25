@@ -44,20 +44,20 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
   });
 
-  it('is able to disconnect', () => {
-    return this.amqp.close().then(() => {
+  it('is able to disconnect', () => (
+    this.amqp.close().then(() => {
       expect(this.amqp._amqp).to.be.eq(null);
-    });
-  });
+    })
+  ));
 
-  it('is able to connect via helper function', () => {
-    return AMQPTransport
+  it('is able to connect via helper function', () => (
+    AMQPTransport
       .connect(configuration)
       .then(amqp => {
         expect(amqp._amqp.state).to.be.eq('open');
         this.amqp = amqp;
-      });
-  });
+      })
+  ));
 
   it('is able to consume routes', () => {
     const opts = {
@@ -68,8 +68,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     };
 
     return AMQPTransport
-      .connect(opts, function listener(message, headers, actions, callback) {
-        callback(null, message + '-response');
+      .connect(opts, (message, headers, actions, callback) => {
+        callback(null, `${message}-response`);
       })
       .then(amqp => {
         expect(amqp._amqp.state).to.be.eq('open');
@@ -77,11 +77,11 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
   });
 
-  it('is able to publish to route consumer', () => {
-    return this.amqp.publishAndWait('test.default', 'test-message').then((response) => {
+  it('is able to publish to route consumer', () => (
+    this.amqp.publishAndWait('test.default', 'test-message').then(response => {
       expect(response).to.be.eq('test-message-response');
-    });
-  });
+    })
+  ));
 
   it('is able to send messages directly to a queue', () => {
     const privateQueue = this.amqp._replyTo;
@@ -102,20 +102,20 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     it('able to publish multiple messages at once', () => {
       const transport = this.concurrent;
-      const promises = ld.times(5, (i) => {
-        return transport.publishAndWait('test.default', `ok.${i}`);
-      });
+      const promises = ld.times(5, (i) => (
+        transport.publishAndWait('test.default', `ok.${i}`)
+      ));
       return Promise.all(promises);
     });
 
-    after('close consumer', () => {
-      return this.concurrent.close();
-    });
+    after('close consumer', () => (
+      this.concurrent.close()
+    ));
   });
 
-  after('cleanup', () => {
-    return Promise.map(['amqp', 'amqp_consumer'], (name) => {
-      return this[name] && this[name].close();
-    });
-  });
+  after('cleanup', () => (
+    Promise.map(['amqp', 'amqp_consumer'], name => (
+      this[name] && this[name].close()
+    ))
+  ));
 });
