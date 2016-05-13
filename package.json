@@ -3,9 +3,10 @@
   "description": "microservice utils based on amqp transport layer",
   "main": "./lib/index.js",
   "scripts": {
-    "compile": "./node_modules/.bin/babel -d ./lib ./src",
+    "compile": "babel -d ./lib ./src",
     "prepublish": "npm run compile",
-    "test": "./node_modules/.bin/mocha",
+    "lint": "eslint ./src",
+    "test": "npm run lint && mocha",
     "semantic-release": "semantic-release pre && npm publish && semantic-release post"
   },
   "repository": {
@@ -20,7 +21,7 @@
   "homepage": "https://github.com/makeomatic/ms-amqp-transport#readme",
   "devDependencies": {
     "babel-cli": "^6.4.0",
-    "babel-eslint": "^5.0.0-beta6",
+    "babel-eslint": "^6.0.0",
     "babel-plugin-transform-class-properties": "^6.4.0",
     "babel-plugin-transform-es2015-destructuring": "^6.4.0",
     "babel-plugin-transform-es2015-parameters": "^6.4.2",
@@ -31,19 +32,20 @@
     "babel-register": "^6.3.13",
     "chai": "^3.4.1",
     "cz-conventional-changelog": "^1.1.5",
-    "eslint": "^1.10.3",
-    "eslint-config-airbnb": "^3.1.0",
-    "eslint-plugin-mocha": "^1.1.0",
+    "eslint": "^2.9.0",
+    "eslint-config-airbnb-base": "^3.0.1",
+    "eslint-plugin-import": "^1.8.0",
+    "eslint-plugin-mocha": "^2.2.0",
     "mocha": "^2.3.4",
     "semantic-release": "^4.3.5"
   },
   "dependencies": {
-    "amqp-coffee": "github:makeomatic/amqp-coffee#v0.1.27-rc0",
+    "amqp-coffee": "^0.1.27",
     "bluebird": "^3.1.1",
     "common-errors": "^0.5.3",
     "eventemitter3": "^1.1.1",
     "json-stringify-safe": "^5.0.1",
-    "ms-validation": "^1.0.1",
+    "ms-validation": "^2.0.0",
     "node-uuid": "^1.4.7"
   },
   "release": {

@@ -16,9 +16,9 @@ const latency = time => {
 
 // init validation
 const Validation = require('ms-validation');
-const validator = new Validation('..', function filterFiles(filename) {
-  return path.extname(filename) === '.json' && path.basename(filename, '.json') !== 'package';
-});
+const validator = new Validation('..', filename => (
+  path.extname(filename) === '.json' && path.basename(filename, '.json') !== 'package'
+));
 
 // serialization functions
 const { jsonSerializer, jsonDeserializer, MSError } = require('./serialization.js');
@@ -99,9 +99,7 @@ class AMQPTransport extends EventEmitter {
 
     // add simple debugger
     if (config.debug) {
-      this.on('log', (message) => {
-        process.stdout.write('> ' + message + '\n');
-      });
+      this.on('log', message => debug(message));
     }
 
     // Form app id string for debugging
@@ -121,9 +119,9 @@ class AMQPTransport extends EventEmitter {
   /**
    * Override EE3 on, so that we have newListener again
    */
-  on() {
-    this.emit('newListener', arguments[0]);
-    super.on.apply(this, arguments);
+  on(...args) {
+    this.emit('newListener', args[0]);
+    super.on.apply(this, args);
   }
 
   /**
@@ -185,7 +183,7 @@ class AMQPTransport extends EventEmitter {
       function establishConsumer() {
         return establishQueue()
           .tap(createExchange)
-          .then(function establishErrorHandlers({ consumer }) {
+          .then(({ consumer }) => {
             // invoke to rebind
             function rebind(err, res) {
               const msg = err && err.replyCode || err;
@@ -211,7 +209,7 @@ class AMQPTransport extends EventEmitter {
             // precondition-failed	406
             //  The client requested a method that was not allowed
             //  because some precondition failed.
-            consumer.on('error', function handleError(err, res) {
+            consumer.on('error', (err, res) => {
               // https://www.rabbitmq.com/amqp-0-9-1-reference.html -
               switch (err.replyCode) {
                 // ignore errors
@@ -294,7 +292,7 @@ class AMQPTransport extends EventEmitter {
         case 'opening':
         case 'open':
         case 'reconnecting':
-          return new Promise(function disconnectListener(resolve, reject) {
+          return new Promise((resolve, reject) => {
             amqp.once('close', resolve);
             amqp.once('error', reject);
             amqp.close();
@@ -341,7 +339,7 @@ class AMQPTransport extends EventEmitter {
 
     return amqp
       .queueAsync(params)
-      .then(function declareQueue(_queue) {
+      .then(_queue => {
         queue = _queue;
         return queue.declareAsync();
       })
@@ -398,6 +396,7 @@ class AMQPTransport extends EventEmitter {
           }
 
           this.emit('error', err);
+          return null;
         });
 
         // declare _replyTo queueName
@@ -443,17 +442,14 @@ class AMQPTransport extends EventEmitter {
       const format = '[406] error declaring queue with params %s: %s';
       this.log(format, JSON.stringify(params), err.replyText);
     })
-    .then(() => {
-      const srv = this;
-      return Promise.map(routes, function bindRoutes(route) {
-        return queue
-        .bindAsync(exchange, route)
-        .tap(() => {
-          const queueName = queue.queueOptions.queue;
-          srv.log('queue "%s" binded to exchange "%s" on route "%s"', queueName, exchange, route);
-        });
-      });
-    });
+    .then(() => Promise
+      .map(routes, route => queue
+      .bindAsync(exchange, route)
+      .tap(() => {
+        const queueName = queue.queueOptions.queue;
+        this.log('queue "%s" binded to exchange "%s" on route "%s"', queueName, exchange, route);
+      })
+    ));
   }
 
   /**
@@ -550,12 +546,12 @@ class AMQPTransport extends EventEmitter {
       let done;
       let error;
 
-      done = function onReady() {
+      done = function onReady() { // eslint-disable-line prefer-const
         this.removeAllListeners('error', error);
         resolve(this);
       };
 
-      error = function onError(err) {
+      error = function onError(err) { // eslint-disable-line prefer-const
         this.removeListener('private-queue-ready', done);
         reject(err);
       };
@@ -568,7 +564,7 @@ class AMQPTransport extends EventEmitter {
   _initTimeout(reject, timeout, correlationId, errorMessage) {
     return setTimeout(() => {
       this._replyQueue.delete(correlationId);
-      reject(new Errors.TimeoutError(timeout + 'ms: ' + errorMessage));
+      reject(new Errors.TimeoutError(`${timeout}ms: ${errorMessage}`));
     }, timeout);
   }
 
@@ -802,7 +798,7 @@ class AMQPTransport extends EventEmitter {
    */
   _onClose = (err) => {
     // emit connect event through log
-    this.log('connection is closed. Had an error:', err ? err : '<n/a>');
+    this.log('connection is closed. Had an error:', err || '<n/a>');
 
     // re-emit close event
     this.emit('close', err);

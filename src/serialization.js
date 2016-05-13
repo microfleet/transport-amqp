@@ -1,7 +1,7 @@
 const Errors = require('common-errors');
 const MSError = Errors.helpers.generateClass('MSError', {
   globalize: false,
-  args: [ 'message' ],
+  args: ['message'],
 });
 
 /**
@@ -17,9 +17,7 @@ function serializeError(error) {
 
   serialized.data = Object
     .getOwnPropertyNames(error)
-    .map(function transferErrorContext(key) {
-      return { key, value: error[key] };
-    });
+    .map(key => ({ key, value: error[key] }));
 
   return serialized;
 }
@@ -31,7 +29,7 @@ function serializeError(error) {
  */
 function deserializeError(error) {
   const deserialized = new MSError();
-  error.forEach(function transferSerializedErrorContext(data) {
+  error.forEach(data => {
     deserialized[data.key] = data.value;
   });
 
@@ -54,7 +52,7 @@ function jsonDeserializer(key, value) {
       if (type === 'ms-error') {
         return deserializeError(data);
       } else if (type === 'buffer') {
-        return new Buffer(data);
+        return Buffer.from(data);
       }
     }
   }
