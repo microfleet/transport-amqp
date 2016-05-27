@@ -7,7 +7,7 @@ const os = require('os');
 const ld = require('lodash');
 const pkg = require('../package.json');
 const path = require('path');
-const { format: fmt } = require('util');
+const fmt = require('util').format;
 const debug = require('debug')('ms-amqp-transport');
 const latency = time => {
   const execTime = process.hrtime(time);
@@ -542,16 +542,17 @@ class AMQPTransport extends EventEmitter {
    * @return {Promise}
    */
   _awaitPrivateQueue() {
+    /* eslint-disable prefer-const */
     return new Promise((resolve, reject) => {
       let done;
       let error;
 
-      done = function onReady() { // eslint-disable-line prefer-const
+      done = function onReady() {
         this.removeAllListeners('error', error);
         resolve(this);
       };
 
-      error = function onError(err) { // eslint-disable-line prefer-const
+      error = function onError(err) {
         this.removeListener('private-queue-ready', done);
         reject(err);
       };
@@ -559,6 +560,7 @@ class AMQPTransport extends EventEmitter {
       this.once('private-queue-ready', done);
       this.once('error', error);
     });
+    /* eslint-enable prefer-const */
   }
 
   _initTimeout(reject, timeout, correlationId, errorMessage) {
