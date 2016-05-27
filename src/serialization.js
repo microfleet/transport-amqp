@@ -17,10 +17,7 @@ function serializeError(error) {
 
   serialized.data = Object
     .getOwnPropertyNames(error)
-    .map(key => ({
-      key,
-      value: error[key],
-    }));
+    .map(key => ({ key, value: error[key] }));
 
   return serialized;
 }
@@ -54,7 +51,7 @@ function jsonDeserializer(key, value) {
       if (type === 'ms-error') {
         return deserializeError(data);
       } else if (type === 'buffer') {
-        return new Buffer(data);
+        return Buffer.from(data);
       }
     }
   }

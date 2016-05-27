@@ -1,5 +1,3 @@
-'use strict';
-
 const Promise = require('bluebird');
 const Benchmark = require('benchmark');
 const AMQPTransport = require('../lib');
@@ -60,8 +58,8 @@ Promise.join(
     const stats = this.filter('fastest')[0].stats;
     const times = this.filter('fastest')[0].times;
     process.stdout.write(fmt('Messages sent: %s\n', messagesSent));
-    process.stdout.write(fmt('Mean is', stats.mean * 1000 + 'ms', '~' + stats.rme + '%\n'));
-    process.stdout.write(fmt('Total time is', times.elapsed + 's', times.period + 's\n'));
+    process.stdout.write(fmt('Mean is %s ms ~ %s %\n', stats.mean * 1000, stats.rme));
+    process.stdout.write(fmt('Total time is %s s %s s\n', times.elapsed, times.period));
     consumer.close();
     publisher.close();
   })
