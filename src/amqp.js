@@ -76,7 +76,6 @@ class AMQPTransport extends EventEmitter {
   /**
    * Instantiate AMQP Transport
    * @param  {Object} opts, defaults to {}
-   *   - @param {}
    */
   constructor(opts = {}) {
     super();
@@ -713,8 +712,6 @@ class AMQPTransport extends EventEmitter {
     const { correlationId } = headers;
     const future = this._replyQueue.get(correlationId);
 
-    debug('response returned in %s', latency(future.time));
-
     if (!future) {
       this.log(
         'no recipient for the message %s and id %s',
@@ -732,6 +729,8 @@ class AMQPTransport extends EventEmitter {
       // mute
       return null;
     }
+
+    debug('response returned in %s', latency(future.time));
 
     clearTimeout(future.timer);
     this._replyQueue.delete(correlationId);
