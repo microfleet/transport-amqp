@@ -33,7 +33,6 @@ function deserializeError(error) {
     deserialized[data.key] = data.value;
   });
 
-  Errors.prependCurrentStack(deserialized);
   return deserialized;
 }
 

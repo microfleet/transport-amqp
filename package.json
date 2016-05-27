@@ -7,6 +7,7 @@
     "prepublish": "npm run compile",
     "lint": "eslint ./src",
     "test": "npm run lint && mocha",
+    "bench": "npm run compile && node ./bench/roundtrip.js",
     "semantic-release": "semantic-release pre && npm publish && semantic-release post"
   },
   "repository": {
@@ -26,19 +27,21 @@
     "babel-plugin-transform-es2015-spread": "^6.3.13",
     "babel-plugin-transform-object-rest-spread": "^6.3.13",
     "babel-plugin-transform-strict-mode": "^6.3.13",
-    "babel-register": "^6.3.13",
+    "babel-register": "^6.4.3",
+    "benchmark": "^2.0.0",
     "chai": "^3.4.1",
     "cz-conventional-changelog": "^1.1.5",
     "eslint": "^2.9.0",
     "eslint-config-airbnb-base": "^3.0.1",
     "eslint-plugin-import": "^1.8.0",
     "eslint-plugin-mocha": "^2.2.0",
+    "microtime": "^2.0.0",
     "mocha": "^2.3.4",
     "semantic-release": "^6.0.0"
   },
   "dependencies": {
     "amqp-coffee": "^0.1.27",
-    "bluebird": "^3.1.1",
+    "bluebird": "^3.1.4",
     "common-errors": "^0.5.3",
     "eventemitter3": "^1.1.1",
     "json-stringify-safe": "^5.0.1",

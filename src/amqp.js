@@ -14,6 +14,11 @@ const latency = time => {
   return execTime[0] * 1000 + (+(execTime[1] / 1000000).toFixed(3));
 };
 
+// error generator
+function generateErrorMessage(routing, timeout) {
+  return `job timed out on routing ${routing} after ${timeout} ms`;
+}
+
 // init validation
 const Validation = require('ms-validation');
 const validator = new Validation('..', filename => (
@@ -47,6 +52,12 @@ class AMQPTransport extends EventEmitter {
       mandatory: false,
       immediate: false,
       headers: {},
+    },
+    defaultQueueOpts: {
+      // specify for consumer queues
+    },
+    privateQueueOpts: {
+      // specify for private queues
     },
     timeout: 10000,
     debug: process.env.NODE_ENV === 'development',
@@ -166,7 +177,7 @@ class AMQPTransport extends EventEmitter {
 
       // create queue: either private or public for shared task pool
       function establishQueue() {
-        return amqp.createQueue({ queue, neck, router });
+        return amqp.createQueue({ ...config.defaultQueueOpts, queue, neck, router });
       }
 
       // bind to an opened exchange once connected
@@ -342,6 +353,10 @@ class AMQPTransport extends EventEmitter {
         queue = _queue;
         return queue.declareAsync();
       })
+      .catch({ replyCode: 406 }, err => {
+        this.log('error declaring %s queue: %s', params.queue, err.replyText);
+        return queue.queueOptions;
+      })
       .then(_options => {
         options = { ..._options };
         this.log('queue "%s" created', options.queue);
@@ -375,7 +390,11 @@ class AMQPTransport extends EventEmitter {
     this._replyTo = false;
 
     return this
-      .createQueue({ queue: '', router: this._privateMessageRouter })
+      .createQueue({
+        ...this._config.privateQueueOpts,
+        queue: '',
+        router: this._privateMessageRouter,
+      })
       .bind(this)
       .then(function privateQueueCreated({ consumer, options }) {
         // remove existing listeners
@@ -438,7 +457,7 @@ class AMQPTransport extends EventEmitter {
     .exchangeAsync(params)
     .call('declareAsync')
     .catch({ replyCode: 406 }, err => {
-      const format = '[406] error declaring queue with params %s: %s';
+      const format = '[406] error declaring exchange with params %s: %s';
       this.log(format, JSON.stringify(params), err.replyText);
     })
     .then(() => Promise
@@ -480,7 +499,6 @@ class AMQPTransport extends EventEmitter {
       route,
       message,
       options,
-      fmt('job timeout on route "%s" - service does not work or overloaded', route),
       this.publish
     )
     .tap(() => {
@@ -516,7 +534,6 @@ class AMQPTransport extends EventEmitter {
       queue,
       message,
       options,
-      fmt('job timeout on queue "%s" - service does not work or overloaded', queue),
       this.send
     );
   }
@@ -562,10 +579,10 @@ class AMQPTransport extends EventEmitter {
     /* eslint-enable prefer-const */
   }
 
-  _initTimeout(reject, timeout, correlationId, errorMessage) {
+  _initTimeout(reject, timeout, correlationId, routing) {
     return setTimeout(() => {
       this._replyQueue.delete(correlationId);
-      reject(new Errors.TimeoutError(`${timeout}ms: ${errorMessage}`));
+      reject(new Errors.TimeoutError(generateErrorMessage(routing, timeout)));
     }, timeout);
   }
 
@@ -575,7 +592,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {String} errorMessage
    * @return {Promise}
    */
-  _createMessageHandler(routing, message, options, errorMessage, publishMessage) {
+  _createMessageHandler(routing, message, options, publishMessage) {
     const replyTo = options.replyTo || this._replyTo;
     const time = process.hrtime();
 

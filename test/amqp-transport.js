@@ -1,3 +1,5 @@
+/* eslint-disable no-console, max-len */
+
 const chai = require('chai');
 const expect = chai.expect;
 const Errors = require('common-errors');
@@ -48,20 +50,20 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
   });
 
-  it('is able to disconnect', () => {
-    return this.amqp.close().then(() => {
+  it('is able to disconnect', () => (
+    this.amqp.close().then(() => {
       expect(this.amqp._amqp).to.be.eq(null);
-    });
-  });
+    })
+  ));
 
-  it('is able to connect via helper function', () => {
-    return AMQPTransport
+  it('is able to connect via helper function', () => (
+    AMQPTransport
       .connect(configuration)
       .then(amqp => {
         expect(amqp._amqp.state).to.be.eq('open');
         this.amqp = amqp;
-      });
-  });
+      })
+  ));
 
   it('is able to consume routes', () => {
     const opts = {
@@ -73,7 +75,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     return AMQPTransport
       .connect(opts, function listener(message, headers, actions, callback) {
-        callback(null, { resp: message + '-response', time: process.hrtime() });
+        callback(null, { resp: `${message}-response`, time: process.hrtime() });
       })
       .then(amqp => {
         expect(amqp._amqp.state).to.be.eq('open');
@@ -127,20 +129,20 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     it('able to publish multiple messages at once', () => {
       const transport = this.concurrent;
-      const promises = ld.times(5, (i) => {
-        return transport.publishAndWait('test.default', `ok.${i}`);
-      });
+      const promises = ld.times(5, (i) => (
+        transport.publishAndWait('test.default', `ok.${i}`)
+      ));
       return Promise.all(promises);
     });
 
-    after('close consumer', () => {
-      return this.concurrent.close();
-    });
+    after('close consumer', () => (
+      this.concurrent.close()
+    ));
   });
 
-  after('cleanup', () => {
-    return Promise.map(['amqp', 'amqp_consumer'], (name) => {
-      return this[name] && this[name].close();
-    });
-  });
+  after('cleanup', () => (
+    Promise.map(['amqp', 'amqp_consumer'], name => (
+      this[name] && this[name].close()
+    ))
+  ));
 });

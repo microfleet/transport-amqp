@@ -11,6 +11,7 @@
     "no-param-reassign": [2, {"props": false}],
     "global-require": 0,
     "no-underscore-dangle": 0,
-    'no-case-declarations': 0
+    "no-case-declarations": 0,
+    "prefer-arrow-callback": 0
   }
 }
