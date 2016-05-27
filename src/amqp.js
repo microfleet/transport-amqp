@@ -606,7 +606,7 @@ class AMQPTransport extends EventEmitter {
 
       return promise
         .return(this)
-        .call('_createMessageHandler', routing, message, options, errorMessage, publishMessage)
+        .call('_createMessageHandler', routing, message, options, publishMessage)
         .tap(() => {
           debug('private queue created in %s', latency(time));
         });
@@ -617,7 +617,7 @@ class AMQPTransport extends EventEmitter {
       // set timer
       const correlationId = options.correlationId || uuid.v4();
       const timeout = options.timeout || this._config.timeout;
-      const timer = this._initTimeout(reject, timeout, correlationId, errorMessage);
+      const timer = this._initTimeout(reject, timeout, correlationId, routing);
 
       // push into queue
       this._replyQueue.set(correlationId, { resolve, reject, timer, time });
