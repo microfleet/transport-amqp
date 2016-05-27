@@ -23,7 +23,7 @@
     "babel-cli": "^6.4.0",
     "babel-eslint": "^6.0.0",
     "babel-plugin-transform-class-properties": "^6.4.0",
-    "babel-plugin-transform-es2015-shorthand-properties": "^6.3.13",
+    "babel-plugin-transform-es2015-spread": "^6.3.13",
     "babel-plugin-transform-object-rest-spread": "^6.3.13",
     "babel-plugin-transform-strict-mode": "^6.3.13",
     "babel-register": "^6.3.13",
