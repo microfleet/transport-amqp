@@ -16,6 +16,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   const AMQPTransport = require('../src');
   const configuration = {
     exchange: 'test-exchange',
+    debug: true,
     connection: {
       host: process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost',
       port: process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672,
