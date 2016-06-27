@@ -45,6 +45,7 @@
     "common-errors": "^0.5.3",
     "eventemitter3": "^1.1.1",
     "json-stringify-safe": "^5.0.1",
+    "lodash": "^4.0.0",
     "ms-validation": "^2.0.0",
     "node-uuid": "^1.4.7"
   },
