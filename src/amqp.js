@@ -382,9 +382,9 @@ class AMQPTransport extends EventEmitter {
   closeConsumer(consumer) {
     this.log('closing consumer', consumer.consumerTag);
     consumer.removeAllListeners();
-    consumer.on('error', ld.noop);
 
     if (consumer.state !== 'closed') {
+      consumer.on('error', ld.noop);
       consumer.close();
     }
   }
