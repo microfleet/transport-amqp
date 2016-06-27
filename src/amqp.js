@@ -92,6 +92,11 @@ class AMQPTransport extends EventEmitter {
     super();
     const config = this._config = ld.merge({}, AMQPTransport.defaultOpts, opts);
 
+    // default to array
+    if (typeof config.listen === 'string') {
+      config.listen = [config.listen];
+    }
+
     // validate configuration
     const { error } = validator.validateSync('amqp', config);
     if (error) {
