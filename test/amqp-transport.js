@@ -4,7 +4,7 @@ const chai = require('chai');
 const expect = chai.expect;
 const Errors = require('common-errors');
 const Promise = require('bluebird');
-const Proxy = require('amqp-coffee/test/proxy')
+const Proxy = require('amqp-coffee/test/proxy').route;
 const ld = require('lodash');
 const latency = time => {
   const execTime = process.hrtime(time);
@@ -141,22 +141,23 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     ));
   });
 
-  describe.only('consumed queue', function test() {
+  describe('consumed queue', function test() {
     before('init transport', () => {
-      this.proxy = new Proxy.route(9010, 5672, 'localhost');
+      this.proxy = new Proxy(9010, 5672, 'localhost');
       this.transport = new AMQPTransport({
+        debug: true,
         connection: {
           port: 9010,
         },
-        exchange: 'test',
+        exchange: 'test-direct',
         exchangeArgs: {
           autoDelete: true,
           type: 'direct',
         },
         defaultQueueOpts: {
           autoDelete: true,
-          exclusive: true
-        }
+          exclusive: true,
+        },
       });
 
       return this.transport.connect();
@@ -166,19 +167,19 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       const transport = this.transport;
       transport.on('consumed-queue-reconnected', (consumer, queue) => {
         // #2 reconnected, try publish
-        transport.publishAndWait('/', { foo: "bar" })
+        transport
+          .publishAndWait('/', { foo: 'bar' })
           .then(message => {
             // #4 OK, try unbind
-            expect(message).to.be.deep.eq({ bar: "baz" });
+            expect(message).to.be.deep.eq({ bar: 'baz' });
             return transport.unbindExchange(queue, '/');
           })
           .then(() => {
             // #5 unbinded, let's reconnect
             transport.removeAllListeners('consumed-queue-reconnected');
-            transport.on('consumed-queue-reconnected', (consumer, queue) => {
+            transport.on('consumed-queue-reconnected', () => {
               // #7 reconnected again
-              transport.publish('/', { bar: "foo" });
-
+              transport.publish('/', { bar: 'foo' });
               Promise.delay(1000).tap(done);
             });
 
@@ -186,31 +187,29 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
             setTimeout(() => {
               this.proxy.interrupt(20);
             }, 10);
-          })
+          });
       });
 
       function router(message, headers, actions, next) {
         switch (headers.routingKey) {
           case '/':
             // #3 all right, try answer
-            expect(message).to.be.deep.eq({ foo: "bar" });
-            return next(null, { bar: "baz" });
+            expect(message).to.be.deep.eq({ foo: 'bar' });
+            return next(null, { bar: 'baz' });
           default:
             throw new Error();
         }
       }
 
       transport.createConsumedQueue(router)
-        .spread((consumer, queue) => {
-          return transport.bindExchange(queue, '/');
-        })
+        .spread((consumer, queue) => transport.bindExchange(queue, '/'))
         .tap(() => {
           // #1 trigger error
           setTimeout(() => {
             this.proxy.interrupt(20);
           }, 10);
-        })
-        .catch((error) => { throw error });
+        });
+        // .catch((error) => { throw error; });
     });
 
     after('close transport', () => {
