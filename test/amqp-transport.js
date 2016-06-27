@@ -69,6 +69,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
   it('is able to consume routes', () => {
     const opts = {
+      debug: true,
       exchange: configuration.exchange,
       queue: 'test-queue',
       listen: 'test.default',
