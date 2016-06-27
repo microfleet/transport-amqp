@@ -383,7 +383,10 @@ class AMQPTransport extends EventEmitter {
     this.log('closing consumer', consumer.consumerTag);
     consumer.removeAllListeners();
     consumer.on('error', ld.noop);
-    consumer.close();
+
+    if (consumer.state !== 'closed') {
+      consumer.close();
+    }
   }
 
   /**
@@ -503,7 +506,7 @@ class AMQPTransport extends EventEmitter {
     // default params
     ld.defaults(params, {
       exchange: this._config.exchange,
-      type: 'topic',
+      type: this._config.exchangeArgs.type,
       durable: true,
     });
 
