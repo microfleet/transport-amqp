@@ -386,12 +386,17 @@ class AMQPTransport extends EventEmitter {
     if (consumer.state !== 'closed') {
       consumer.on('error', ld.noop);
       consumer.close();
+    } else {
+      consumer.on('error', error => {
+        this.log('closed consumer error', error);
+      });
     }
   }
 
   /**
-   * @param messageHandler
-   * @param options
+   * @param {Function} messageHandler
+   * @param {Array} listen
+   * @param {Object} options
    */
   createConsumedQueue(messageHandler, listen = [], options = {}) {
     if (ld.isFunction(messageHandler) === false && Array.isArray(listen) === false) {
@@ -532,7 +537,7 @@ class AMQPTransport extends EventEmitter {
         const queueName = queue.queueOptions.queue;
         if (queue._routes) {
           queue._routes.push(route);
-          this.log('[queue rotues]', queue._routes);
+          this.log('[queue routes]', queue._routes);
         }
 
         this.log('queue "%s" binded to exchange "%s" on route "%s"', queueName, exchange, route);
@@ -562,7 +567,7 @@ class AMQPTransport extends EventEmitter {
             }
           }
 
-          this.log('queue "%s" binded to exchange "%s" on route "%s"', queueName, exchange, route);
+          this.log('queue "%s" unbinded from exchange "%s" on route "%s"', queueName, exchange, route);
         })
     );
   }

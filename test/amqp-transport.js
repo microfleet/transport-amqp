@@ -211,7 +211,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
             this.proxy.interrupt(20);
           }, 10);
         });
-        // .catch((error) => { throw error; });
     });
 
     after('close transport', () => {
