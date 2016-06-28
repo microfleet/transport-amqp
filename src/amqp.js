@@ -567,7 +567,12 @@ class AMQPTransport extends EventEmitter {
             }
           }
 
-          this.log('queue "%s" unbinded from exchange "%s" on route "%s"', queueName, exchange, route);
+          this.log(
+            'queue "%s" unbinded from exchange "%s" on route "%s"',
+            queueName,
+            exchange,
+            route
+          );
         })
     );
   }
