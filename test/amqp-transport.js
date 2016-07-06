@@ -1,4 +1,4 @@
-/* eslint-disable no-console, max-len */
+/* eslint-disable no-console, max-len, promise/always-return */
 
 const chai = require('chai');
 const expect = chai.expect;
@@ -6,14 +6,13 @@ const Errors = require('common-errors');
 const Promise = require('bluebird');
 const Proxy = require('amqp-coffee/test/proxy').route;
 const ld = require('lodash');
-const latency = time => {
-  const execTime = process.hrtime(time);
-  return execTime[0] * 1000 + (+(execTime[1] / 1000000).toFixed(3));
-};
+const stringify = require('json-stringify-safe');
 
 describe('AMQPTransport', function AMQPTransportTestSuite() {
   // require module
   const AMQPTransport = require('../src');
+  const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization.js');
+
   const configuration = {
     exchange: 'test-exchange',
     debug: true,
@@ -22,6 +21,50 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       port: process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672,
     },
   };
+
+  it('stringifies message correctly', () => {
+    this.originalMsg = {
+      meta: {
+        controlsData: [
+          0.25531813502311707, 0.0011256206780672073, 0.06426551938056946,
+          -0.001104108989238739, 0.852259635925293, 0.005791602656245232,
+          -0.5230863690376282, 0, 0.9999388456344604, 0.011071242392063141,
+          0.523118257522583, -0.009435615502297878, 0.8522077798843384,
+          0.8522599935531616, 0, 0.5231184363365173, 0, 0.005791574250906706,
+          0.9999387264251709, -0.009435582906007767, 0, -0.5230863690376282,
+          0.011071248911321163, 0.8522077798843384, 0, -0.13242781162261963,
+          0.06709221005439758, 0.21647998690605164, 1,
+        ],
+        name: 'oki-dokie',
+      },
+      body: {
+        random: true,
+        data: [{
+          filename: 'ok',
+          version: 10.3,
+        }],
+      },
+      buffer: Buffer.from('xxx'),
+    };
+
+    this.msg = stringify(this.originalMsg, jsonSerializer);
+
+    // eslint-disable-next-line max-len
+    expect(this.msg).to.be.eq('{"meta":{"controlsData":[0.25531813502311707,0.0011256206780672073,0.06426551938056946,-0.001104108989238739,0.852259635925293,0.005791602656245232,-0.5230863690376282,0,0.9999388456344604,0.011071242392063141,0.523118257522583,-0.009435615502297878,0.8522077798843384,0.8522599935531616,0,0.5231184363365173,0,0.005791574250906706,0.9999387264251709,-0.009435582906007767,0,-0.5230863690376282,0.011071248911321163,0.8522077798843384,0,-0.13242781162261963,0.06709221005439758,0.21647998690605164,1],"name":"oki-dokie"},"body":{"random":true,"data":[{"filename":"ok","version":10.3}]},"buffer":{"type":"Buffer","data":[120,120,120]}}');
+  });
+
+  it('deserializes message correctly', () => {
+    expect(JSON.parse(this.msg, jsonDeserializer)).to.be.deep.eq(this.originalMsg);
+  });
+
+  it('serializes & deserializes error', () => {
+    const serialized = stringify(new Error('ok'), jsonSerializer);
+    const err = JSON.parse(serialized, jsonDeserializer);
+
+    expect(err.name).to.be.eq('MSError');
+    expect(!!err.stack).to.be.eq(true);
+    expect(err.message).to.be.eq('ok');
+  });
 
   it('is able to be initialized', () => {
     const amqp = new AMQPTransport(configuration);
@@ -86,32 +129,29 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
   });
 
-  it('is able to publish to route consumer', () => {
-    const sending = process.hrtime();
-    return this.amqp.publishAndWait('test.default', 'test-message').then((response) => {
-      expect(response.resp).to.be.eq('test-message-response');
-      console.log(response.time);
-      console.log('response sent and received after %s, total time %s', latency(response.time), latency(sending));
-    });
-  });
+  it('is able to publish to route consumer', () => (
+    this.amqp
+      .publishAndWait('test.default', 'test-message')
+      .then((response) => {
+        expect(response.resp).to.be.eq('test-message-response');
+      })
+  ));
 
-  it('is able to publish to route consumer:2', () => {
-    const sending = process.hrtime();
-    return this.amqp.publishAndWait('test.default', 'test-message').then((response) => {
-      expect(response.resp).to.be.eq('test-message-response');
-      console.log(response.time);
-      console.log('response sent and received after %s, total time %s', latency(response.time), latency(sending));
-    });
-  });
+  it('is able to publish to route consumer:2', () => (
+    this.amqp
+      .publishAndWait('test.default', 'test-message')
+      .then((response) => {
+        expect(response.resp).to.be.eq('test-message-response');
+      })
+  ));
 
-  it('is able to publish to route consumer:2', () => {
-    const sending = process.hrtime();
-    return this.amqp.publishAndWait('test.default', 'test-message').then((response) => {
-      expect(response.resp).to.be.eq('test-message-response');
-      console.log(response.time);
-      console.log('response sent and received after %s, total time %s', latency(response.time), latency(sending));
-    });
-  });
+  it('is able to publish to route consumer:2', () => (
+    this.amqp
+      .publishAndWait('test.default', 'test-message')
+      .then((response) => {
+        expect(response.resp).to.be.eq('test-message-response');
+      })
+  ));
 
   it('is able to send messages directly to a queue', () => {
     const privateQueue = this.amqp._replyTo;
@@ -167,7 +207,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     it('should create consumed queue', (done) => {
       const transport = this.transport;
-      transport.on('consumed-queue-reconnected', (consumer, queue) => {
+      transport.on('consumed-queue-reconnected', (consumer, queue) => (
         // #2 reconnected, try publish
         transport
           .publishAndWait('/', { foo: 'bar' })
@@ -189,8 +229,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
             setTimeout(() => {
               this.proxy.interrupt(20);
             }, 10);
-          });
-      });
+          })
+      ));
 
       function router(message, headers, actions, next) {
         switch (headers.routingKey) {

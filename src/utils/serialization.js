@@ -1,3 +1,4 @@
+const is = require('is');
 const Errors = require('common-errors');
 const MSError = Errors.helpers.generateClass('MSError', {
   globalize: false,
@@ -37,7 +38,7 @@ function deserializeError(error) {
 }
 
 function jsonSerializer(key, value) {
-  if (value && typeof value === 'object' && value instanceof Error) {
+  if (is.instance(value, Error)) {
     return serializeError(value);
   }
 
@@ -45,18 +46,27 @@ function jsonSerializer(key, value) {
 }
 
 function jsonDeserializer(key, value) {
-  if (value && typeof value === 'object') {
-    const { data, type } = value;
-    if (data) {
-      if (type === 'ms-error') {
-        return deserializeError(data);
-      } else if (type === 'buffer') {
-        return Buffer.from(data);
-      }
-    }
+  if (!is.object(value)) {
+    return value;
   }
 
-  return value;
+  const data = value.data;
+  if (!data) {
+    return value;
+  }
+
+  const type = value.type;
+  switch (type) {
+    case 'ms-error':
+      return deserializeError(data);
+
+    case 'Buffer':
+    case 'buffer':
+      return Buffer.from(data);
+
+    default:
+      return value;
+  }
 }
 
 exports.jsonSerializer = jsonSerializer;
