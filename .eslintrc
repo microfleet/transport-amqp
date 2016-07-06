@@ -2,7 +2,8 @@
   "extends": "airbnb-base",
   "parser": "babel-eslint",
   "plugins": [
-    "mocha"
+    "mocha",
+    "promise"
   ],
   "env": {
     "mocha": true
@@ -12,6 +13,11 @@
     "global-require": 0,
     "no-underscore-dangle": 0,
     "no-case-declarations": 0,
-    "prefer-arrow-callback": 0
+    "prefer-arrow-callback": 0,
+    "promise/param-names": 2,
+    "promise/always-return": 2,
+    "promise/catch-or-return": 2,
+    "promise/no-native": 2,
+    "import/no-extraneous-dependencies": 0
   }
 }
