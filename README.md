@@ -59,18 +59,38 @@ AMQPTransport.connect(configuration, router).then(function (amqp) {
 
 Publishes message to a route on an exchange defined in configuration
 
+* `route` - routikngKey, must be string
+* `message` - anything that can be stringified, it's advised for it to be small
+* `options`:
+  * `options.timeout` - sets TTL on the message
+
 ### amqp.publishAndWait(route, message, [options])
 
 Same as previous one, but specifies a correlation id and replyTo header, therefore allowing one
 to receive a response.
 
+* `route` - routikngKey, must be string
+* `message` - anything that can be stringified, it's advised for it to be small
+* `options`:
+  * `options.timeout` - sets TTL on the message
+
 ### amqp.send(queue, message, [options])
 
 Sends message directly to a queue
 
+* `queue` - queue name, must be string
+* `message` - anything that can be stringified, it's advised for it to be small
+* `options`:
+  * `options.timeout` - sets TTL on the message
+
 ### amqp.sendAndWait(queue, message, [options])
 
 Sends message directly to a queue and sets replyTo and correlationId headers
+
+* `queue` - queue name, must be string
+* `message` - anything that can be stringified, it's advised for it to be small
+* `options`:
+  * `options.timeout` - sets TTL on the message
 
 ## Tests
 
