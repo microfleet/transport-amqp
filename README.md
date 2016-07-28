@@ -13,6 +13,14 @@ calling interface.
 
 Heavily relies on `dropbox/amqp-coffee` lib for establishing communication to rabbitmq.
 
+## Notice, Upgrade from 3.x to 4.x
+
+* ms-validation became a peer dependency, >= 3.x.x
+* node must be of version >= 6.2.0
+* npm must be >= 3.x.x
+
+Rest is exactly the same as before
+
 ## Usage
 
 ```js
