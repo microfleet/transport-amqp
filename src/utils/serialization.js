@@ -1,5 +1,7 @@
 const is = require('is');
 const Errors = require('common-errors');
+
+// generate internal error class for passing between amqp
 const MSError = Errors.helpers.generateClass('MSError', {
   globalize: false,
   args: ['message'],
