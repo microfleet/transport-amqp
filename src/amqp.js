@@ -20,6 +20,8 @@ const generateErrorMessage = require('./utils/error.js');
 
 // serialization functions
 const { jsonSerializer, jsonDeserializer, MSError } = require('./utils/serialization.js');
+
+// cache references
 const { InvalidOperationError, ValidationError } = Errors;
 
 /**

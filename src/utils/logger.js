@@ -1,8 +1,8 @@
 const bunyan = require('bunyan');
-const isProduction = process.env.NODE_ENV === 'production';
+const stdout = require('stdout-stream');
 
 // holy crap with stdout and good
-const stdout = require('stdout-stream');
+const isProduction = process.env.NODE_ENV === 'production';
 const write = stdout.write;
 stdout.write = (chunk, enc, next) => write.call(stdout, chunk, enc, next);
 
