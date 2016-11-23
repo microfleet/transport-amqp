@@ -1,6 +1,6 @@
 // deps
 const Promise = require('bluebird');
-const uuid = require('node-uuid');
+const uuid = require('uuid');
 const Errors = require('common-errors');
 const stringify = require('json-stringify-safe');
 const EventEmitter = require('eventemitter3');
