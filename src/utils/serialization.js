@@ -32,7 +32,7 @@ function serializeError(error) {
  */
 function deserializeError(error) {
   const deserialized = new MSError();
-  error.forEach(data => {
+  error.forEach((data) => {
     deserialized[data.key] = data.value;
   });
 

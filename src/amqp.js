@@ -1,6 +1,6 @@
 // deps
 const Promise = require('bluebird');
-const uuid = require('node-uuid');
+const uuid = require('uuid');
 const Errors = require('common-errors');
 const stringify = require('json-stringify-safe');
 const EventEmitter = require('eventemitter3');
@@ -144,7 +144,7 @@ class AMQPTransport extends EventEmitter {
       }
     }
 
-    return Promise.fromNode(next => {
+    return Promise.fromNode((next) => {
       this._amqp = new AMQP(config.connection, next);
       this._amqp.on('ready', this._onConnect);
       this._amqp.on('close', this._onClose);
@@ -212,19 +212,19 @@ class AMQPTransport extends EventEmitter {
 
     return amqp
       .queueAsync(params)
-      .then(_queue => {
+      .then((_queue) => {
         queue = _queue;
         return queue.declareAsync();
       })
-      .catch({ replyCode: 406 }, err => {
+      .catch({ replyCode: 406 }, (err) => {
         this.log.info('error declaring %s queue: %s', params.queue, err.replyText);
         return queue.queueOptions;
       })
-      .catch(err => {
+      .catch((err) => {
         this.log.warn('failed to init queue', params.queue, err.replyText);
         throw err;
       })
-      .then(_options => {
+      .then((_options) => {
         options = { ..._options };
         this.log.info('queue "%s" created', options.queue);
 
@@ -232,13 +232,13 @@ class AMQPTransport extends EventEmitter {
           return null;
         }
 
-        return Promise.fromNode(next => {
+        return Promise.fromNode((next) => {
           this.log.info('consumer is being created on "%s"', options.queue);
 
           // setup consumer
           consumer = amqp.consume(
             options.queue,
-            this._queueOpts(params),
+            AMQPTransport._queueOpts(params),
             this._onConsume(params.router),
             next
           );
@@ -271,7 +271,7 @@ class AMQPTransport extends EventEmitter {
         consumer.removeAllListeners('error');
 
         // consume errors
-        consumer.on('error', err => {
+        consumer.on('error', (err) => {
           if (err.replyCode === 404 && err.message.indexOf(options.queue) !== -1) {
             // https://github.com/dropbox/amqp-coffee#consumer-event-error
             // handle consumer error on reconnect and close consumer
@@ -302,7 +302,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {Function} messageHandler
    * @return {Function}
    */
-  initRoutingFn(messageHandler, transport) {
+  static initRoutingFn(messageHandler, transport) {
     return function router(message, headers, actions) {
       let next;
 
@@ -329,7 +329,7 @@ class AMQPTransport extends EventEmitter {
       consumer.on('error', ld.noop);
       consumer.close();
     } else {
-      consumer.on('error', error => {
+      consumer.on('error', (error) => {
         this.log.error('closed consumer error', error);
       });
     }
@@ -352,7 +352,7 @@ class AMQPTransport extends EventEmitter {
     const transport = this;
     const config = this._config;
     const queueOptions = ld.merge({
-      router: transport.initRoutingFn(messageHandler, transport),
+      router: AMQPTransport.initRoutingFn(messageHandler, transport),
       neck: config.neck,
       queue: config.queue || '',
     }, config.defaultQueueOpts, options);
@@ -405,15 +405,15 @@ class AMQPTransport extends EventEmitter {
             .catch(rebind);
         }
 
-        // access-refused	403
+        // access-refused  403
         //  The client attempted to work with a server entity
         //  to which it has no access due to security settings.
-        // not-found	404
+        // not-found  404
         //  The client attempted to work with a server entity that does not exist.
-        // resource-locked	405
+        // resource-locked  405
         //  The client attempted to work with a server entity
         //  to which it has no access because another client is working with it.
-        // precondition-failed	406
+        // precondition-failed  406
         //  The client requested a method that was not allowed
         //  because some precondition failed.
         consumer.on('error', (err, res) => {
@@ -456,7 +456,7 @@ class AMQPTransport extends EventEmitter {
    */
   bindExchange(queue, _routes, params = {}) {
     // make sure we have an expanded array of routes
-    const routes = Array.isArray(_routes) ? _routes : [_routes];
+    const routes = Array.isArray(_routes) ? ld.uniq(_routes) : [_routes];
 
     // default params
     ld.defaults(params, {
@@ -476,7 +476,7 @@ class AMQPTransport extends EventEmitter {
     ._amqp
     .exchangeAsync(params)
     .call('declareAsync')
-    .catch({ replyCode: 406 }, err => {
+    .catch({ replyCode: 406 }, (err) => {
       const format = '[406] error declaring exchange with params %s: %s';
       this.log.warn(format, JSON.stringify(params), err.replyText);
     })
@@ -486,7 +486,11 @@ class AMQPTransport extends EventEmitter {
       .tap(() => {
         const queueName = queue.queueOptions.queue;
         if (queue._routes) {
-          queue._routes.push(route);
+          // reconnect might push an extra route
+          if (queue._routes.indexOf(route) === -1) {
+            queue._routes.push(route);
+          }
+
           this.log.trace('[queue routes]', queue._routes);
         }
 
@@ -693,7 +697,7 @@ class AMQPTransport extends EventEmitter {
       .tap(() => {
         this.log.trace('message published in %s', latency(time));
       })
-      .catch(err => {
+      .catch((err) => {
         this.log.error('error sending message', err);
         clearTimeout(timer);
         this._replyQueue.delete(correlationId);
@@ -709,7 +713,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {Object} opts
    * @return {Object}
    */
-  _queueOpts(opts) {
+  static _queueOpts(opts) {
     const { neck } = opts;
     const output = ld.omit(opts, 'neck');
 
@@ -750,8 +754,8 @@ class AMQPTransport extends EventEmitter {
   /**
    *
    * @param  {Object} message
-   * 	- @param {Object} data: a getter that returns the data in its parsed form, eg a
-   * 													parsed json object, a string, or the raw buffer
+   *   - @param {Object} data: a getter that returns the data in its parsed form, eg a
+   *                           parsed json object, a string, or the raw buffer
    *  - @param {Object} raw: the raw buffer that was returned
    *  - @param {Object} properties: headers specified for the message
    *  - @param {Number} size: message body size
@@ -819,7 +823,7 @@ class AMQPTransport extends EventEmitter {
       } else {
         // this only happens in case of .toJSON on error object
         error = new MSError(originalError.message);
-        AMQPTransport.copyErrorData.forEach(fieldName => {
+        AMQPTransport.copyErrorData.forEach((fieldName) => {
           const mixedData = originalError[fieldName];
           if (is.defined(mixedData) && is.nil(mixedData) === false) {
             error[fieldName] = mixedData;
