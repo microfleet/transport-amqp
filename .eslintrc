@@ -18,6 +18,13 @@
     "promise/always-return": 2,
     "promise/catch-or-return": 2,
     "promise/no-native": 2,
-    "import/no-extraneous-dependencies": 0
+    "import/no-extraneous-dependencies": 0,
+    "comma-dangle": ["error", {
+      "arrays": "always-multiline",
+      "objects": "always-multiline",
+      "imports": "never",
+      "exports": "never",
+      "functions": "never",
+    }]
   }
 }
