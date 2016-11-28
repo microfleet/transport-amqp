@@ -384,6 +384,9 @@ class AMQPTransport extends EventEmitter {
       return transport
       .createQueue({ ...queueOptions })
       .tap(createExchange)
+      .catch((e) => {
+        throw Errors.ConnectionError('failed to init queue or exchange', e);
+      })
       .then(({ consumer, queue }) => {
         // save ref to WeakMap
         transport._consumers.set(establishConsumer, consumer);
@@ -437,7 +440,8 @@ class AMQPTransport extends EventEmitter {
         transport.emit('consumed-queue-reconnected', consumer, queue);
 
         return [consumer, queue];
-      });
+      })
+      .catch(Errors.ConnectionError, establishConsumer);
     }
 
     // make sure we recreate queue and establish consumer on reconnect
