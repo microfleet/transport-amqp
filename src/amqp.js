@@ -441,7 +441,7 @@ class AMQPTransport extends EventEmitter {
 
         return [consumer, queue];
       })
-      .catch(Errors.ConnectionError, establishConsumer);
+      .catch(Errors.ConnectionError, () => Promise.delay(500).then(establishConsumer));
     }
 
     // make sure we recreate queue and establish consumer on reconnect
