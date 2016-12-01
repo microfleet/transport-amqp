@@ -861,8 +861,17 @@ class AMQPTransport extends EventEmitter {
    * 'ready' event from amqp-coffee lib, perform queue recreation here
    */
   _onConnect = () => {
-    const { serverProperties } = this._amqp;
+    const { serverProperties, connection } = this._amqp;
     const { cluster_name, version } = serverProperties;
+
+    // setup connection
+    if ('setNoDelay' in connection) {
+      connection.setNoDelay();
+    }
+
+    if ('socket' in connection && 'setNoDelay' in connection.socket) {
+      connection.socket.setNoDelay();
+    }
 
     // emit connect event through log
     this.log.info('connected to %s v%s', cluster_name, version);
