@@ -1,4 +1,9 @@
+function toMiliseconds(hrtime) {
+  return (hrtime[0] * 1e3) + (hrtime[1] / 1e6).toFixed(3).valueOf();
+}
+
 module.exports = function latency(time) {
-  const execTime = process.hrtime(time);
-  return (execTime[0] * 1000) + (execTime[1] / 1000000).toFixed(3).valueOf();
+  return toMiliseconds(process.hrtime(time));
 };
+
+module.exports.toMiliseconds = toMiliseconds;

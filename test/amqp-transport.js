@@ -1,17 +1,19 @@
 /* eslint-disable no-console, max-len, promise/always-return */
 
 const chai = require('chai');
-const expect = chai.expect;
 const Errors = require('common-errors');
 const Promise = require('bluebird');
 const Proxy = require('amqp-coffee/test/proxy').route;
 const ld = require('lodash');
 const stringify = require('json-stringify-safe');
 
+const expect = chai.expect;
+
 describe('AMQPTransport', function AMQPTransportTestSuite() {
   // require module
   const AMQPTransport = require('../src');
   const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization.js');
+  const latency = require('../src/utils/latency');
 
   const configuration = {
     exchange: 'test-exchange',
@@ -104,7 +106,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   it('is able to connect via helper function', () => (
     AMQPTransport
       .connect(configuration)
-      .then(amqp => {
+      .then((amqp) => {
         expect(amqp._amqp.state).to.be.eq('open');
         this.amqp = amqp;
       })
@@ -113,6 +115,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   it('is able to consume routes', () => {
     const opts = {
       debug: true,
+      cache: 100,
       exchange: configuration.exchange,
       queue: 'test-queue',
       listen: 'test.default',
@@ -123,7 +126,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       .connect(opts, function listener(message, headers, actions, callback) {
         callback(null, { resp: `${message}-response`, time: process.hrtime() });
       })
-      .then(amqp => {
+      .then((amqp) => {
         expect(amqp._amqp.state).to.be.eq('open');
         this.amqp_consumer = amqp;
       });
@@ -158,7 +161,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     return this.amqp_consumer
       .sendAndWait(privateQueue, 'test-message-direct-queue')
       .reflect()
-      .then(promise => {
+      .then((promise) => {
         expect(promise.isRejected()).to.be.eq(true);
         expect(promise.reason().name).to.be.eq('NotPermittedError');
       });
@@ -172,7 +175,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     it('able to publish multiple messages at once', () => {
       const transport = this.concurrent;
-      const promises = ld.times(5, (i) => (
+      const promises = ld.times(5, i => (
         transport.publishAndWait('test.default', `ok.${i}`)
       ));
       return Promise.all(promises);
@@ -180,6 +183,33 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     after('close consumer', () => (
       this.concurrent.close()
+    ));
+  });
+
+  describe('cached request', () => {
+    before('init consumer', () => {
+      const transport = this.cached = new AMQPTransport(configuration);
+      return transport.connect();
+    });
+
+    it('publishes batches of messages, they must return cached values and then new ones', () => {
+      const transport = this.cached;
+      const publish = () => transport.publishAndWait('test.default', 1, { cache: 500 });
+      const promises = [
+        publish(),
+        Promise.delay(300).then(publish),
+        Promise.delay(600).then(publish),
+      ];
+
+      return Promise.all(promises).spread((initial, cached, nonCached) => {
+        const toMiliseconds = latency.toMiliseconds;
+        expect(toMiliseconds(initial.time)).to.be.equal(toMiliseconds(cached.time));
+        expect(toMiliseconds(initial.time)).to.be.lt(toMiliseconds(nonCached.time));
+      });
+    });
+
+    after('close published', () => (
+      this.cached.close()
     ));
   });
 
@@ -211,7 +241,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         // #2 reconnected, try publish
         transport
           .publishAndWait('/', { foo: 'bar' })
-          .then(message => {
+          .then((message) => {
             // #4 OK, try unbind
             expect(message).to.be.deep.eq({ bar: 'baz' });
             return transport.unbindExchange(queue, '/');

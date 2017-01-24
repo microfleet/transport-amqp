@@ -10,6 +10,8 @@ const is = require('is');
 const ld = require('lodash').runInContext();
 const Bunyan = require('bunyan');
 const blackhole = require('bunyan-noop');
+const HLRU = require('hashlru');
+const hash = require('object-hash');
 
 // local deps
 const pkg = require('../package.json');
@@ -76,6 +78,9 @@ class AMQPTransport extends EventEmitter {
     this._replyQueue = new Map();
     this._consumers = new WeakMap();
     this._queues = new WeakMap();
+
+    // init cache if it's setup
+    if (config.cache) this._cache = HLRU(config.cache);
 
     // Form app id string for debugging
     this._appID = {
@@ -680,14 +685,27 @@ class AMQPTransport extends EventEmitter {
 
     // slightly longer timeout, if message was not consumed in time, it will return with expiration
     return new Promise((resolve, reject) => {
+      let hashKey;
+
+      const cache = options.cache;
+      if (cache && this._cache) {
+        hashKey = hash(message);
+        const response = this._cache.get(hashKey);
+        this.log.debug('evaluating cache for %s', hashKey, response);
+        if (response && latency(response.maxAge) < options.cache) {
+          return resolve(response.value);
+        }
+      }
+
       // set timer
       const correlationId = options.correlationId || uuid.v4();
       const timeout = options.timeout || this._config.timeout;
       const timer = this._initTimeout(reject, timeout, correlationId, routing);
 
       // push into queue
-      this._replyQueue.set(correlationId, { resolve, reject, timer, time });
+      this._replyQueue.set(correlationId, { resolve, reject, timer, time, cache: hashKey });
 
+      // debugging
       this.log.trace('message pushed into reply queue in %s', latency(time));
 
       // this is to ensure that queue is not overflown and work will not
@@ -838,7 +856,15 @@ class AMQPTransport extends EventEmitter {
       return future.reject(error);
     }
 
-    return future.resolve(message.data);
+    // enabled caching
+    const cache = future.cache;
+    const data = message.data;
+    if (cache && this._cache) {
+      this.log.debug('setting cache for %s', cache);
+      this._cache.set(cache, { maxAge: process.hrtime(), value: data });
+    }
+
+    return future.resolve(data);
   }
 
   /**

@@ -37,7 +37,7 @@
     "chai": "^3.4.1",
     "cz-conventional-changelog": "^1.2.0",
     "eslint": "^3.10.2",
-    "eslint-config-airbnb-base": "^10.0.1",
+    "eslint-config-airbnb-base": "^11.0.1",
     "eslint-plugin-import": "^2.2.0",
     "eslint-plugin-mocha": "^4.7.0",
     "eslint-plugin-promise": "^3.4.0",
@@ -51,9 +51,9 @@
   },
   "peerDependencies": {
     "bunyan": "~1.x.x",
-    "stdout-stream": "~1.x.x",
     "common-errors": "~1.x.x",
-    "ms-validation": "~3.x.x"
+    "ms-validation": "~3.x.x",
+    "stdout-stream": "~1.x.x"
   },
   "dependencies": {
     "amqp-coffee": "^0.1.28",
@@ -62,9 +62,11 @@
     "common-errors": "^1.0.0",
     "debug": "^2.3.3",
     "eventemitter3": "^2.0.2",
+    "hashlru": "^1.0.6",
     "is": "^3.2.0",
     "json-stringify-safe": "^5.0.1",
     "lodash": "^4.17.2",
+    "object-hash": "^1.1.5",
     "uuid": "^3.0.0"
   },
   "release": {

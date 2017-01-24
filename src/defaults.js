@@ -1,6 +1,7 @@
 module.exports = {
   name: 'amqp',
   private: false,
+  cache: 100,
   exchange: 'node-services',
   exchangeArgs: {
     autoDelete: false,
