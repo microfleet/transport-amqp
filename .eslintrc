@@ -1,30 +1,3 @@
 {
-  "extends": "airbnb-base",
-  "parser": "babel-eslint",
-  "plugins": [
-    "mocha",
-    "promise"
-  ],
-  "env": {
-    "mocha": true
-  },
-  "rules": {
-    "no-param-reassign": [2, {"props": false}],
-    "global-require": 0,
-    "no-underscore-dangle": 0,
-    "no-case-declarations": 0,
-    "prefer-arrow-callback": 0,
-    "promise/param-names": 2,
-    "promise/always-return": 2,
-    "promise/catch-or-return": 2,
-    "promise/no-native": 2,
-    "import/no-extraneous-dependencies": 0,
-    "comma-dangle": ["error", {
-      "arrays": "always-multiline",
-      "objects": "always-multiline",
-      "imports": "never",
-      "exports": "never",
-      "functions": "never",
-    }]
-  }
+  "extends": "makeomatic"
 }

@@ -8,10 +8,10 @@ const os = require('os');
 const fmt = require('util').format;
 const is = require('is');
 const ld = require('lodash').runInContext();
-const Bunyan = require('bunyan');
-const blackhole = require('bunyan-noop');
 const HLRU = require('hashlru');
 const hash = require('object-hash');
+const assert = require('assert');
+const every = require('lodash/every');
 
 // local deps
 const pkg = require('../package.json');
@@ -30,6 +30,8 @@ const { InvalidOperationError, ValidationError } = Errors;
  * @class AMQPTransport
  */
 class AMQPTransport extends EventEmitter {
+
+  static logLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
 
   static defaultOpts = require('./defaults.js');
 
@@ -63,14 +65,16 @@ class AMQPTransport extends EventEmitter {
     }
 
     // validate configuration
-    const { error } = validator.validateSync('amqp', config);
-    if (error) throw error;
+    assert.ifError(validator.validateSync('amqp', config).error, `Invalid config: ${JSON.stringify(config)}`);
 
     // bunyan logger
     if (config.debug && !config.log) {
       this.log = require('./utils/logger.js');
+    } else if (config.log && typeof config.log === 'object') {
+      const compatibleLogger = every(AMQPTransport.logLevels, level => is.fn(config.log[level]));
+      this.log = compatibleLogger ? config.log : require('bunyan-noop')();
     } else {
-      this.log = is.instance(config.log, Bunyan) ? config.log : blackhole();
+      this.log = require('bunyan-noop')();
     }
 
     // setup instance
@@ -138,10 +142,12 @@ class AMQPTransport extends EventEmitter {
       switch (amqp.state) {
         case 'opening':
         case 'open':
-        case 'reconnecting':
+        case 'reconnecting': {
           const msg = 'connection was already initialized, close it first';
           const err = new InvalidOperationError(msg);
           return Promise.reject(err);
+        }
+
         default:
           // already closed, but make sure
           amqp.close();
@@ -753,8 +759,8 @@ class AMQPTransport extends EventEmitter {
    * Specifies default publishing options
    * @param  {Object} options
    * @param  {String} options.exchange - will be overwritten by exchange thats passed
-   *                                   in the publish/send methods
-   *                                   https://github.com/dropbox/amqp-coffee/blob/6d99cf4c9e312c9e5856897ab33458afbdd214e5/src/lib/Publisher.coffee#L90
+   *  in the publish/send methods
+   *  https://github.com/dropbox/amqp-coffee/blob/6d99cf4c9e312c9e5856897ab33458afbdd214e5/src/lib/Publisher.coffee#L90
    * @return {Object}
    */
   _publishOptions(options = {}) {
