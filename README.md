@@ -1,5 +1,7 @@
 # Microservice Utils
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/makeomatic/ms-amqp-transport.svg)](https://greenkeeper.io/)
+
 Contains rabbitmq-based transport for establishing a net of loosely coupled microservices with a simple rpc-style
 calling interface.
 
