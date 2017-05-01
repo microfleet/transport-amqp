@@ -53,7 +53,7 @@
   "peerDependencies": {
     "bunyan": "~1.x.x",
     "common-errors": "~1.x.x",
-    "ms-validation": "~3.x.x",
+    "ms-validation": "~4.0.0",
     "stdout-stream": "~1.x.x"
   },
   "dependencies": {
