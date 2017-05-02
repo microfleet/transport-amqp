@@ -1,165 +1,181 @@
 {
-  "id": "amqp",
-  "type": "object",
-  "properties": {
-    "name": {
-      "oneOf": [
-        { "type": "string" },
-        { "type": "number" }
-      ]
-    },
-    "private": {
-      "type": "boolean"
-    },
-    "exchange": {
-      "type": "string"
-    },
-    "exchangeArgs": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": [ "direct", "fanout", "topic", "headers" ]
-        },
-        "autoDelete": {
-          "type": "boolean"
-        },
-        "passive": {
-          "type": "boolean"
-        },
-        "durable": {
-          "type": "boolean"
-        },
-        "noWait": {
-          "type": "boolean"
-        },
-        "internal": {
-          "type": "boolean"
-        }
-      }
-    },
-    "defaultOpts": {
-      "type": "object",
-      "properties": {
-        "confirm": {
-          "type": "boolean"
-        },
-        "mandatory": {
-          "type": "boolean"
-        },
-        "immediate": {
-          "type": "boolean"
-        },
-        "contentType": {
-          "type": "string"
-        },
-        "headers": {
-          "type": "object"
-        }
-      }
-    },
-    "timeout": {
-      "type": "integer"
-    },
-    "listen": {
-      "oneOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "type": "string"
-          }
-        }
-      ]
-    },
-    "connection": {
-      "type": "object",
-      "properties": {
-        "host": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "array",
-              "minItems": 1,
-              "items": {
-                "oneOf": [
-                  {
+    "$id": "amqp",
+    "type": "object",
+    "properties": {
+        "name": {
+            "oneOf": [
+                {
                     "type": "string"
-                  },
-                  {
-                    "type": "object",
-                    "required": [ "host", "port" ],
-                    "properties": {
-                      "host": {
+                },
+                {
+                    "type": "number"
+                }
+            ]
+        },
+        "private": {
+            "type": "boolean"
+        },
+        "exchange": {
+            "type": "string"
+        },
+        "exchangeArgs": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "direct",
+                        "fanout",
+                        "topic",
+                        "headers"
+                    ]
+                },
+                "autoDelete": {
+                    "type": "boolean"
+                },
+                "passive": {
+                    "type": "boolean"
+                },
+                "durable": {
+                    "type": "boolean"
+                },
+                "noWait": {
+                    "type": "boolean"
+                },
+                "internal": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "defaultOpts": {
+            "type": "object",
+            "properties": {
+                "confirm": {
+                    "type": "boolean"
+                },
+                "mandatory": {
+                    "type": "boolean"
+                },
+                "immediate": {
+                    "type": "boolean"
+                },
+                "contentType": {
+                    "type": "string"
+                },
+                "headers": {
+                    "type": "object"
+                }
+            }
+        },
+        "timeout": {
+            "type": "integer"
+        },
+        "listen": {
+            "oneOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
                         "type": "string"
-                      },
-                      "port": {
-                        "type": "integer"
-                      }
                     }
-                  }
-                ]
-              }
+                }
+            ]
+        },
+        "connection": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "oneOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "oneOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "object",
+                                        "required": [
+                                            "host",
+                                            "port"
+                                        ],
+                                        "properties": {
+                                            "host": {
+                                                "type": "string"
+                                            },
+                                            "port": {
+                                                "type": "integer"
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "port": {
+                    "oneOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "integer"
+                        }
+                    ]
+                },
+                "login": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "vhost": {
+                    "type": "string"
+                },
+                "temporaryChannelTimeout": {
+                    "type": "number"
+                },
+                "heartbeat": {
+                    "type": "integer"
+                },
+                "reconnect": {
+                    "type": "boolean"
+                },
+                "reconnectDelayTime": {
+                    "type": "integer"
+                },
+                "hostRandom": {
+                    "type": "boolean"
+                },
+                "clientProperties": {
+                    "type": "object",
+                    "properties": {
+                        "version": {
+                            "type": "string"
+                        },
+                        "platform": {
+                            "type": "string"
+                        },
+                        "product": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "ssl": {
+                    "type": "boolean"
+                },
+                "sslOptions": {
+                    "type": "object"
+                }
             }
-          ]
-        },
-        "port": {
-          "oneOf": [
-            { "type": "string" },
-            { "type": "integer" }
-          ]
-        },
-        "login": {
-          "type": "string"
-        },
-        "password": {
-          "type": "string"
-        },
-        "vhost": {
-          "type": "string"
-        },
-        "temporaryChannelTimeout": {
-          "type": "number"
-        },
-        "heartbeat": {
-          "type": "integer"
-        },
-        "reconnect": {
-          "type": "boolean"
-        },
-        "reconnectDelayTime": {
-          "type": "integer"
-        },
-        "hostRandom": {
-          "type": "boolean"
-        },
-        "clientProperties": {
-          "type": "object",
-          "properties": {
-            "version": {
-              "type": "string"
-            },
-            "platform": {
-              "type": "string"
-            },
-            "product": {
-              "type": "string"
-            }
-          }
-        },
-        "ssl": {
-          "type": "boolean"
-        },
-        "sslOptions": {
-          "type": "object"
         }
-      }
     }
-  }
 }
