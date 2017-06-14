@@ -3,28 +3,20 @@
 Contains rabbitmq-based transport for establishing a net of loosely coupled microservices with a simple rpc-style
 calling interface.
 
-[![npm version](https://badge.fury.io/js/ms-amqp-transport.svg)](https://badge.fury.io/js/ms-amqp-transport)
-[![Build Status](https://semaphoreci.com/api/v1/makeomatic/ms-amqp-transport/branches/feat-node-6/shields_badge.svg)](https://semaphoreci.com/makeomatic/ms-amqp-transport)
+[![npm version](https://badge.fury.io/js/@microfleet/transport-amqp.svg)](https://badge.fury.io/js/@microfleet/transport-amqp)
+[![Build Status](https://semaphoreci.com/api/v1/makeomatic/@microfleet/transport-amqp/branches/feat-node-6/shields_badge.svg)](https://semaphoreci.com/makeomatic/@microfleet/transport-amqp)
 [![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg?style=flat-square)](https://github.com/semantic-release/semantic-release)
 
 ## Install
 
-`npm i ms-amqp-transport -S`
+`npm i @microfleet/transport-amqp -S`
 
-Heavily relies on `dropbox/amqp-coffee` lib for establishing communication to rabbitmq.
-
-## Notice, Upgrade from 3.x to 4.x
-
-* ms-validation became a peer dependency, >= 3.x.x
-* node must be of version >= 6.2.0
-* npm must be >= 3.x.x
-
-Rest is exactly the same as before
+Heavily relies on `dropbox/amqp-coffee` & `@microfleet/amqp-coffee` lib for establishing communication to rabbitmq
 
 ## Usage
 
 ```js
-const AMQPTransport = require('ms-amqp-transport');
+const AMQPTransport = require('@microfleet/transport-amqp');
 
 const amqp = new AMQPTransport(config);
 
@@ -39,7 +31,7 @@ based on the provided configuration.
 Consider the following example:
 
 ```js
-const AMQPTransport = require('ms-amqp-transport');
+const AMQPTransport = require('@microfleet/transport-amqp');
 
 // message routers
 function router(message, headers, actions, next) {
@@ -67,7 +59,7 @@ AMQPTransport.connect(configuration, router).then(function (amqp) {
 
 Publishes message to a route on an exchange defined in configuration
 
-* `route` - routikngKey, must be string
+* `route` - routingKey, must be string
 * `message` - anything that can be stringified, it's advised for it to be small
 * `options`:
   * `options.timeout` - sets TTL on the message
@@ -81,6 +73,7 @@ to receive a response.
 * `message` - anything that can be stringified, it's advised for it to be small
 * `options`:
   * `options.timeout` - sets TTL on the message
+  * `options.priority` - 0 to 255 - priority of the message if queue was declared with `x-max-priority`
 
 ### amqp.send(queue, message, [options])
 
