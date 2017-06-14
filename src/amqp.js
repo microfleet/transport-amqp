@@ -7,24 +7,45 @@ const EventEmitter = require('eventemitter3');
 const os = require('os');
 const fmt = require('util').format;
 const is = require('is');
-const ld = require('lodash').runInContext();
 const HLRU = require('hashlru');
 const hash = require('object-hash');
 const assert = require('assert');
+
+// lodash fp
 const every = require('lodash/every');
+const merge = require('lodash/merge');
+const defaults = require('lodash/defaults');
+const noop = require('lodash/noop');
+const uniq = require('lodash/uniq');
+const omit = require('lodash/omit');
+const extend = require('lodash/extend');
+const pick = require('lodash/pick');
 
 // local deps
 const pkg = require('../package.json');
-const validator = require('./utils/validator.js');
-const AMQP = require('./utils/transport.js');
-const latency = require('./utils/latency.js');
-const generateErrorMessage = require('./utils/error.js');
+const validator = require('./utils/validator');
+const AMQP = require('./utils/transport');
+const latency = require('./utils/latency');
+const generateErrorMessage = require('./utils/error');
 
 // serialization functions
-const { jsonSerializer, jsonDeserializer, MSError } = require('./utils/serialization.js');
+const { jsonSerializer, jsonDeserializer, MSError } = require('./utils/serialization');
 
 // cache references
 const { InvalidOperationError, ValidationError } = Errors;
+
+/**
+ * Initializes timeout
+ * @param  {Function} reject
+ * @param  {number} timeout
+ * @param  {string} correlationId
+ * @param  {string} routing
+ * @returns {Timeout}
+ */
+const initTimeout = (replyQueue, reject, timeout, correlationId, routing) => {
+  replyQueue.delete(correlationId);
+  reject(new Errors.TimeoutError(generateErrorMessage(routing, timeout)));
+};
 
 /**
  * @class AMQPTransport
@@ -33,7 +54,7 @@ class AMQPTransport extends EventEmitter {
 
   static logLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
 
-  static defaultOpts = require('./defaults.js');
+  static defaultOpts = require('./defaults');
 
   static extendMessageProperties = [
     'deliveryTag',
@@ -57,7 +78,7 @@ class AMQPTransport extends EventEmitter {
    */
   constructor(opts = {}) {
     super();
-    const config = this._config = ld.merge({}, AMQPTransport.defaultOpts, opts);
+    const config = this._config = merge({}, AMQPTransport.defaultOpts, opts);
 
     // default to array
     if (is.string(config.listen)) {
@@ -82,6 +103,7 @@ class AMQPTransport extends EventEmitter {
     this._replyQueue = new Map();
     this._consumers = new WeakMap();
     this._queues = new WeakMap();
+    this._boundEmit = this.emit.bind(this);
 
     // init cache if it's setup
     if (config.cache) this._cache = HLRU(config.cache);
@@ -101,11 +123,12 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
-   * Allows one to consume messages with a given router and predefined callback handler
-   * @param  {Function} messageHandler
-   * @return {Promise}
+   * Creates AMQPTransport instance
+   * @param  {Object} [_config]
+   * @param  {Function} [_messageHandler]
+   * @returns {AMQPTransport}
    */
-  static connect(_config, _messageHandler, _opts = {}) {
+  static create(_config, _messageHandler) {
     let config;
     let messageHandler;
 
@@ -117,17 +140,60 @@ class AMQPTransport extends EventEmitter {
       config = _config;
     }
 
+    // init AMQP connection
     const amqp = new AMQPTransport(config);
 
-    return amqp.connect()
-      .tap(() => {
+    // connect & resolve AMQP connector & message handler if it exists
+    return amqp.connect().return([amqp, messageHandler]);
+  }
+
+  /**
+   * Allows one to consume messages with a given router and predefined callback handler
+   * @param  {Object} _config
+   * @param  {Function} [_messageHandler]
+   * @param  {Object} [_opts={}]
+   * @returns {Promise<AMQPTransport>}
+   */
+  static connect(config, _messageHandler, _opts = {}) {
+    return AMQPTransport
+      .create(config, _messageHandler)
+      .spread((amqp, messageHandler) => {
+        // do not init queues
         if (is.fn(messageHandler) === false && !amqp._config.listen) {
-          return null;
+          return amqp;
         }
 
-        return amqp.createConsumedQueue(messageHandler, amqp._config.listen, _opts);
-      })
-      .return(amqp);
+        return amqp.createConsumedQueue(messageHandler, amqp._config.listen, _opts).return(amqp);
+      });
+  }
+
+  /**
+   * Same as AMQPTransport.connect, except that it creates a queue
+   * per each of the routes we want to listen to
+   * @param  {Object} config
+   * @param  {Function} [_messageHandler]
+   * @param  {Object} [_opts={}]
+   * @returns {Promise<AMQPTransport>}
+   */
+  static multiConnect(config, _messageHandler, opts = []) {
+    return AMQPTransport
+      .create(config, _messageHandler)
+      .spread((amqp, messageHandler) => {
+        // do not init queues
+        if (is.fn(messageHandler) === false && !amqp._config.listen) {
+          return amqp;
+        }
+
+        return Promise
+          .resolve(amqp._config.listen)
+          .map((route, idx) => {
+            const queueOpts = opts[idx] || {};
+            return amqp.createConsumedQueue(messageHandler, [route], defaults(queueOpts, {
+              queue: config.queue ? `${config.queue}-${route}` : config.queue,
+            }));
+          })
+          .return(amqp);
+      });
   }
 
   /**
@@ -216,7 +282,7 @@ class AMQPTransport extends EventEmitter {
     // basis for params
     const params = is.string(_params) ? { queue: _params } : _params;
 
-    ld.defaults(params, {
+    defaults(params, {
       autoDelete: !params.queue,
       durable: !!params.queue,
     });
@@ -300,9 +366,7 @@ class AMQPTransport extends EventEmitter {
 
         // declare _replyTo queueName
         this._replyTo = options.queue;
-        setImmediate(() => {
-          this.emit('private-queue-ready');
-        });
+        setImmediate(this._boundEmit, 'private-queue-ready');
 
         return data;
       });
@@ -337,7 +401,7 @@ class AMQPTransport extends EventEmitter {
     consumer.removeAllListeners();
 
     if (consumer.state !== 'closed') {
-      consumer.on('error', ld.noop);
+      consumer.on('error', noop);
       consumer.close();
     } else {
       consumer.on('error', (error) => {
@@ -352,17 +416,17 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} options
    */
   createConsumedQueue(messageHandler, listen = [], options = {}) {
-    if (ld.isFunction(messageHandler) === false && Array.isArray(listen) === false) {
+    if (is.fn(messageHandler) === false && Array.isArray(listen) === false) {
       throw new Errors.ArgumentError('messageHandler or listen must be present');
     }
 
-    if (ld.isPlainObject(options) === false) {
+    if (is.object(options) === false) {
       throw new Errors.ArgumentError('options');
     }
 
     const transport = this;
     const config = this._config;
-    const queueOptions = ld.merge({
+    const queueOptions = merge({
       router: AMQPTransport.initRoutingFn(messageHandler, transport),
       neck: config.neck,
       queue: config.queue || '',
@@ -396,7 +460,7 @@ class AMQPTransport extends EventEmitter {
       .createQueue({ ...queueOptions })
       .tap(createExchange)
       .catch((e) => {
-        throw Errors.ConnectionError('failed to init queue or exchange', e);
+        throw new Errors.ConnectionError('failed to init queue or exchange', e);
       })
       .then(({ consumer, queue }) => {
         // save ref to WeakMap
@@ -471,10 +535,10 @@ class AMQPTransport extends EventEmitter {
    */
   bindExchange(queue, _routes, params = {}) {
     // make sure we have an expanded array of routes
-    const routes = Array.isArray(_routes) ? ld.uniq(_routes) : [_routes];
+    const routes = Array.isArray(_routes) ? uniq(_routes) : [_routes];
 
     // default params
-    ld.defaults(params, {
+    defaults(params, {
       exchange: this._config.exchange,
       type: this._config.exchangeArgs.type,
       durable: true,
@@ -495,10 +559,9 @@ class AMQPTransport extends EventEmitter {
       const format = '[406] error declaring exchange with params %s: %s';
       this.log.warn(format, JSON.stringify(params), err.replyText);
     })
-    .then(() => Promise
-      .map(routes, route => queue
-      .bindAsync(exchange, route)
-      .tap(() => {
+    .return(routes)
+    .map(route => (
+      queue.bindAsync(exchange, route).tap(() => {
         const queueName = queue.queueOptions.queue;
         if (queue._routes) {
           // reconnect might push an extra route
@@ -509,8 +572,7 @@ class AMQPTransport extends EventEmitter {
           this.log.trace('[queue routes]', queue._routes);
         }
 
-        const format = 'queue "%s" binded to exchange "%s" on route "%s"';
-        this.log.debug(format, queueName, exchange, route);
+        this.log.debug('queue "%s" bound to exchange "%s" on route "%s"', queueName, exchange, route);
       })
     ));
   }
@@ -525,26 +587,19 @@ class AMQPTransport extends EventEmitter {
     const exchange = this._config.exchange;
     const routes = Array.isArray(_routes) ? _routes : [_routes];
 
-    return Promise.map(
-      routes,
-      route => queue.unbindAsync(exchange, route)
-        .tap(() => {
-          const queueName = queue.queueOptions.queue;
-          if (queue._routes) {
-            const idx = queue._routes.indexOf(route);
-            if (idx >= 0) {
-              queue._routes.splice(idx, 1);
-            }
+    return Promise.map(routes, route => (
+      queue.unbindAsync(exchange, route).tap(() => {
+        const queueName = queue.queueOptions.queue;
+        if (queue._routes) {
+          const idx = queue._routes.indexOf(route);
+          if (idx >= 0) {
+            queue._routes.splice(idx, 1);
           }
+        }
 
-          this.log.info(
-            'queue "%s" unbinded from exchange "%s" on route "%s"',
-            queueName,
-            exchange,
-            route
-          );
-        })
-    );
+        this.log.info('queue "%s" unbound from exchange "%s" on route "%s"', queueName, exchange, route);
+      })
+    ));
   }
 
   /**
@@ -632,7 +687,7 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Creates local listener for when a private queue is up
-   * @return {Promise}
+   * @returns {Promise<Void|Error>}
    */
   _awaitPrivateQueue() {
     /* eslint-disable prefer-const */
@@ -642,11 +697,13 @@ class AMQPTransport extends EventEmitter {
 
       done = function onReady() {
         this.removeAllListeners('error', error);
-        resolve(this);
+        error = null;
+        resolve();
       };
 
       error = function onError(err) {
         this.removeListener('private-queue-ready', done);
+        done = null;
         reject(err);
       };
 
@@ -654,13 +711,6 @@ class AMQPTransport extends EventEmitter {
       this.once('error', error);
     });
     /* eslint-enable prefer-const */
-  }
-
-  _initTimeout(reject, timeout, correlationId, routing) {
-    return setTimeout(() => {
-      this._replyQueue.delete(correlationId);
-      reject(new Errors.TimeoutError(generateErrorMessage(routing, timeout)));
-    }, timeout);
   }
 
   /**
@@ -706,10 +756,11 @@ class AMQPTransport extends EventEmitter {
       // set timer
       const correlationId = options.correlationId || uuid.v4();
       const timeout = options.timeout || this._config.timeout;
-      const timer = this._initTimeout(reject, timeout, correlationId, routing);
+      const replyQueue = this._replyQueue;
+      const timer = setTimeout(initTimeout, timeout, replyQueue, reject, timeout, correlationId, routing);
 
       // push into queue
-      this._replyQueue.set(correlationId, { resolve, reject, timer, time, cache: hashKey });
+      replyQueue.set(correlationId, { resolve, reject, timer, time, cache: hashKey });
 
       // debugging
       this.log.trace('message pushed into reply queue in %s', latency(time));
@@ -728,7 +779,7 @@ class AMQPTransport extends EventEmitter {
       .catch((err) => {
         this.log.error('error sending message', err);
         clearTimeout(timer);
-        this._replyQueue.delete(correlationId);
+        replyQueue.delete(correlationId);
         reject(err);
       });
 
@@ -743,7 +794,7 @@ class AMQPTransport extends EventEmitter {
    */
   static _queueOpts(opts) {
     const { neck } = opts;
-    const output = ld.omit(opts, 'neck');
+    const output = omit(opts, 'neck');
 
     if (is.undefined(neck)) {
       output.noAck = true;
@@ -769,10 +820,10 @@ class AMQPTransport extends EventEmitter {
       appId: this._appIDString,
     };
 
-    ld.defaults(opts, this._defaultOpts);
+    defaults(opts, this._defaultOpts);
 
     // append request timeout in headers
-    ld.defaults(opts.headers, {
+    defaults(opts.headers, {
       timeout: opts.timeout || this._config.timeout,
     });
 
@@ -797,7 +848,7 @@ class AMQPTransport extends EventEmitter {
 
     return function consumeMessage(message) {
       // pick extra properties
-      ld.extend(message.properties, ld.pick(message, AMQPTransport.extendMessageProperties));
+      extend(message.properties, pick(message, AMQPTransport.extendMessageProperties));
 
       // do not access .data, because it's a getter and will trigger parses on
       // certain type contents

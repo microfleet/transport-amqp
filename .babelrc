@@ -3,5 +3,12 @@
     "transform-strict-mode",
     "transform-class-properties",
     "transform-object-rest-spread"
-  ]
+  ],
+  "env": {
+    "test": {
+      "plugins": [
+        "istanbul"
+      ]
+    }
+  }
 }

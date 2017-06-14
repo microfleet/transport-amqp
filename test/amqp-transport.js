@@ -1,18 +1,18 @@
 /* eslint-disable no-console, max-len, promise/always-return */
 
-const chai = require('chai');
 const Errors = require('common-errors');
 const Promise = require('bluebird');
-const Proxy = require('amqp-coffee/test/proxy').route;
+const Proxy = require('@microfleet/amqp-coffee/test/proxy').route;
 const ld = require('lodash');
 const stringify = require('json-stringify-safe');
-
-const expect = chai.expect;
+const sinon = require('sinon');
+const assert = require('assert');
+const microtime = require('microtime');
 
 describe('AMQPTransport', function AMQPTransportTestSuite() {
   // require module
   const AMQPTransport = require('../src');
-  const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization.js');
+  const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization');
   const latency = require('../src/utils/latency');
 
   const configuration = {
@@ -52,27 +52,27 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     this.msg = stringify(this.originalMsg, jsonSerializer);
 
     // eslint-disable-next-line max-len
-    expect(this.msg).to.be.eq('{"meta":{"controlsData":[0.25531813502311707,0.0011256206780672073,0.06426551938056946,-0.001104108989238739,0.852259635925293,0.005791602656245232,-0.5230863690376282,0,0.9999388456344604,0.011071242392063141,0.523118257522583,-0.009435615502297878,0.8522077798843384,0.8522599935531616,0,0.5231184363365173,0,0.005791574250906706,0.9999387264251709,-0.009435582906007767,0,-0.5230863690376282,0.011071248911321163,0.8522077798843384,0,-0.13242781162261963,0.06709221005439758,0.21647998690605164,1],"name":"oki-dokie"},"body":{"random":true,"data":[{"filename":"ok","version":10.3}]},"buffer":{"type":"Buffer","data":[120,120,120]}}');
+    assert.equal(this.msg, '{"meta":{"controlsData":[0.25531813502311707,0.0011256206780672073,0.06426551938056946,-0.001104108989238739,0.852259635925293,0.005791602656245232,-0.5230863690376282,0,0.9999388456344604,0.011071242392063141,0.523118257522583,-0.009435615502297878,0.8522077798843384,0.8522599935531616,0,0.5231184363365173,0,0.005791574250906706,0.9999387264251709,-0.009435582906007767,0,-0.5230863690376282,0.011071248911321163,0.8522077798843384,0,-0.13242781162261963,0.06709221005439758,0.21647998690605164,1],"name":"oki-dokie"},"body":{"random":true,"data":[{"filename":"ok","version":10.3}]},"buffer":{"type":"Buffer","data":[120,120,120]}}');
   });
 
   it('deserializes message correctly', () => {
-    expect(JSON.parse(this.msg, jsonDeserializer)).to.be.deep.eq(this.originalMsg);
+    assert.deepEqual(JSON.parse(this.msg, jsonDeserializer), this.originalMsg);
   });
 
   it('serializes & deserializes error', () => {
     const serialized = stringify(new Error('ok'), jsonSerializer);
     const err = JSON.parse(serialized, jsonDeserializer);
 
-    expect(err.name).to.be.eq('MSError');
-    expect(!!err.stack).to.be.eq(true);
-    expect(err.message).to.be.eq('ok');
+    assert.equal(err.name, 'MSError');
+    assert.equal(!!err.stack, true);
+    assert.equal(err.message, 'ok');
   });
 
   it('is able to be initialized', () => {
     const amqp = new AMQPTransport(configuration);
-    expect(amqp).to.be.an.instanceof(AMQPTransport);
-    expect(amqp).to.have.ownProperty('_config');
-    expect(amqp).to.have.ownProperty('_replyQueue');
+    assert(amqp instanceof AMQPTransport);
+    assert(Object.prototype.hasOwnProperty.call(amqp, '_config'));
+    assert(Object.prototype.hasOwnProperty.call(amqp, '_replyQueue'));
   });
 
   it('fails on invalid configuration', () => {
@@ -86,20 +86,20 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
     }
 
-    expect(createTransport).to.throw(Errors.ValidationError);
+    assert.throws(createTransport, Errors.ValidationError);
   });
 
   it('is able to connect to rabbitmq', () => {
     const amqp = this.amqp = new AMQPTransport(configuration);
     return amqp.connect()
       .then(() => {
-        expect(amqp._amqp.state).to.be.eq('open');
+        assert.equal(amqp._amqp.state, 'open');
       });
   });
 
   it('is able to disconnect', () => (
     this.amqp.close().then(() => {
-      expect(this.amqp._amqp).to.be.eq(null);
+      assert.equal(this.amqp._amqp, null);
     })
   ));
 
@@ -107,7 +107,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     AMQPTransport
       .connect(configuration)
       .then((amqp) => {
-        expect(amqp._amqp.state).to.be.eq('open');
+        assert.equal(amqp._amqp.state, 'open');
         this.amqp = amqp;
       })
   ));
@@ -127,7 +127,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         callback(null, { resp: `${message}-response`, time: process.hrtime() });
       })
       .then((amqp) => {
-        expect(amqp._amqp.state).to.be.eq('open');
+        assert.equal(amqp._amqp.state, 'open');
         this.amqp_consumer = amqp;
       });
   });
@@ -136,7 +136,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     this.amqp
       .publishAndWait('test.default', 'test-message')
       .then((response) => {
-        expect(response.resp).to.be.eq('test-message-response');
+        assert.equal(response.resp, 'test-message-response');
       })
   ));
 
@@ -144,7 +144,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     this.amqp
       .publishAndWait('test.default', 'test-message')
       .then((response) => {
-        expect(response.resp).to.be.eq('test-message-response');
+        assert.equal(response.resp, 'test-message-response');
       })
   ));
 
@@ -152,7 +152,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     this.amqp
       .publishAndWait('test.default', 'test-message')
       .then((response) => {
-        expect(response.resp).to.be.eq('test-message-response');
+        assert.equal(response.resp, 'test-message-response');
       })
   ));
 
@@ -162,8 +162,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       .sendAndWait(privateQueue, 'test-message-direct-queue')
       .reflect()
       .then((promise) => {
-        expect(promise.isRejected()).to.be.eq(true);
-        expect(promise.reason().name).to.be.eq('NotPermittedError');
+        assert.equal(promise.isRejected(), true);
+        assert.equal(promise.reason().name, 'NotPermittedError');
       });
   });
 
@@ -203,13 +203,155 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
       return Promise.all(promises).spread((initial, cached, nonCached) => {
         const toMiliseconds = latency.toMiliseconds;
-        expect(toMiliseconds(initial.time)).to.be.equal(toMiliseconds(cached.time));
-        expect(toMiliseconds(initial.time)).to.be.lt(toMiliseconds(nonCached.time));
+        assert.equal(toMiliseconds(initial.time), toMiliseconds(cached.time));
+        assert(toMiliseconds(initial.time) < toMiliseconds(nonCached.time));
       });
     });
 
     after('close published', () => (
       this.cached.close()
+    ));
+  });
+
+  describe('AMQPTransport.multiConnect', () => {
+    let acksCalled = 0;
+
+    const conf = {
+      debug: true,
+      exchange: configuration.exchange,
+      connection: configuration.connection,
+      queue: 'multi',
+      listen: ['t.#', 'tbone', 'morgue'],
+    };
+
+    it('initializes amqp instance', () => {
+      // mirrors all messages
+      const spy = this.spy = sinon.spy(function listener(message, headers, actions, callback) {
+        if (actions && actions.ack) {
+          acksCalled += 1;
+          actions.ack();
+        }
+
+        callback(null, message);
+      });
+
+      const consumer = AMQPTransport.multiConnect(conf, spy, [{
+        neck: 1,
+      }]);
+
+      const publisher = AMQPTransport.connect(configuration);
+
+      return Promise.join(consumer, publisher, (multi, amqp) => {
+        this.multi = multi;
+        this.publisher = amqp;
+      });
+    });
+
+    it('verify that messages are all received & acked', () => {
+      const q1 = Array.from({ length: 100 }).map((_, idx) => ({
+        route: `t.${idx}`,
+        message: `t.${idx}`,
+      }));
+
+      const q2 = Array.from({ length: 20 }).map((_, idx) => ({
+        route: 'tbone',
+        message: `tbone.${idx}`,
+      }));
+
+      const q3 = Array.from({ length: 30 }).map((_, idx) => ({
+        route: 'morgue',
+        message: `morgue.${idx}`,
+      }));
+
+      const pub = [...q1, ...q2, ...q3];
+
+      return Promise.map(pub, message => (
+        this.publisher.publishAndWait(message.route, message.message)
+      ))
+      .then((responses) => {
+        assert.equal(acksCalled, q1.length);
+
+        // ensure all responses match
+        pub.forEach((p, idx) => {
+          assert.equal(responses[idx], p.message);
+        });
+
+        assert.equal(this.spy.callCount, pub.length);
+      });
+    });
+
+    after('close multi-transport', () => (
+      Promise.join(
+        this.multi.close(),
+        this.publisher.close()
+      )
+    ));
+  });
+
+  describe('priority queue', function test() {
+    const conf = {
+      debug: true,
+      exchange: configuration.exchange,
+      connection: configuration.connection,
+      queue: 'priority',
+    };
+
+    it('initializes amqp instance', () => {
+      // mirrors all messages
+      const consumer = AMQPTransport.connect(conf);
+      const publisher = AMQPTransport.connect(configuration);
+
+      return Promise.join(consumer, publisher, (priority, amqp) => {
+        this.priority = priority;
+        this.publisher = amqp;
+      });
+    });
+
+    it('create priority queue', () => {
+      return this.priority._amqp.queueAsync({
+        autoDelete: false,
+        durable: true,
+        queue: 'priority',
+        arguments: {
+          'x-max-priority': 5,
+        },
+      });
+    });
+
+    it('prioritize messages', () => {
+      const messages = Array.from({ length: 3 }).map((_, idx) => ({
+        message: idx % 4,
+        priority: idx % 4,
+      }));
+
+      const spy = sinon.spy(function listener(message, headers, actions, callback) {
+        actions.ack();
+        callback(null, microtime.now());
+      });
+
+      const publish = Promise.map(messages, ({ message, priority }) => {
+        return this.publisher.publishAndWait('priority', message, { priority });
+      });
+
+      const consume = Promise.delay(500).then(() => this.priority.createConsumedQueue(spy, ['priority'], {
+        neck: 1,
+        arguments: {
+          'x-max-priority': 5,
+        },
+      }));
+
+      return Promise.join(publish, consume, (data) => {
+        data.forEach((micro, idx) => {
+          if (data[idx + 1]) assert.ok(micro > data[idx + 1]);
+        });
+      });
+    });
+
+    after('close priority-transport', () => (
+      Promise.join(
+        this.priority.close(),
+        this.publisher.close()
+      )
     ));
   });
 
@@ -243,7 +385,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           .publishAndWait('/', { foo: 'bar' })
           .then((message) => {
             // #4 OK, try unbind
-            expect(message).to.be.deep.eq({ bar: 'baz' });
+            assert.deepEqual(message, { bar: 'baz' });
             return transport.unbindExchange(queue, '/');
           })
           .then(() => {
@@ -266,7 +408,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         switch (headers.routingKey) {
           case '/':
             // #3 all right, try answer
-            expect(message).to.be.deep.eq({ foo: 'bar' });
+            assert.deepEqual(message, { foo: 'bar' });
             return next(null, { bar: 'baz' });
           default:
             throw new Error();

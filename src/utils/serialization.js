@@ -8,6 +8,27 @@ const MSError = Errors.helpers.generateClass('MSError', {
 });
 
 /**
+ * Serializes Own Properties of Error
+ * @param  {String} key
+ * @returns {Object<{ key, value }>}
+ */
+function serializeOwnProperties(key) {
+  return {
+    key,
+    value: this[key],
+  };
+}
+
+/**
+ * Cached Deserialized Own Properties
+ * @param  {Object<{ key, value }>} data
+ * @returns {Void}
+ */
+function deserializeOwnProperties(data) {
+  this[data.key] = data.value;
+}
+
+/**
  * Make sure we can transfer errors via rabbitmq through toJSON() call
  * @param  {Error} error
  * @return {Object}
@@ -20,7 +41,7 @@ function serializeError(error) {
 
   serialized.data = Object
     .getOwnPropertyNames(error)
-    .map(key => ({ key, value: error[key] }));
+    .map(serializeOwnProperties, error);
 
   return serialized;
 }
@@ -32,10 +53,7 @@ function serializeError(error) {
  */
 function deserializeError(error) {
   const deserialized = new MSError();
-  error.forEach((data) => {
-    deserialized[data.key] = data.value;
-  });
-
+  error.forEach(deserializeOwnProperties, deserialized);
   return deserialized;
 }
 
