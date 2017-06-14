@@ -194,11 +194,11 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     it('publishes batches of messages, they must return cached values and then new ones', () => {
       const transport = this.cached;
-      const publish = () => transport.publishAndWait('test.default', 1, { cache: 500 });
+      const publish = () => transport.publishAndWait('test.default', 1, { cache: 2000 });
       const promises = [
         publish(),
         Promise.delay(300).then(publish),
-        Promise.delay(600).then(publish),
+        Promise.delay(3000).then(publish),
       ];
 
       return Promise.all(promises).spread((initial, cached, nonCached) => {
