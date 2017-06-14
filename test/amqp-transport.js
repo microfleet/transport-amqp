@@ -330,7 +330,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
 
       const publish = Promise.map(messages, ({ message, priority }) => {
-        return this.publisher.publishAndWait('priority', message, { priority });
+        return this.publisher.publishAndWait('priority', message, { priority, timeout: 30000 });
       });
 
       const consume = Promise.delay(500).then(() => this.priority.createConsumedQueue(spy, ['priority'], {
