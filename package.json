@@ -28,6 +28,7 @@
   "devDependencies": {
     "babel-cli": "^6.24.1",
     "babel-eslint": "^7.2.3",
+    "babel-plugin-istanbul": "^4.1.4",
     "babel-plugin-transform-class-properties": "^6.24.1",
     "babel-plugin-transform-object-rest-spread": "^6.23.0",
     "babel-plugin-transform-strict-mode": "^6.24.1",
@@ -35,6 +36,8 @@
     "benchmark": "^2.1.4",
     "bunyan": "^1.8.10",
     "chai": "^4.0.2",
+    "codecov": "^2.2.0",
+    "cross-env": "^5.0.1",
     "cz-conventional-changelog": "^2.0.0",
     "eslint": "^3.19.0",
     "eslint-config-makeomatic": "^1.0.1",
@@ -44,6 +47,7 @@
     "microtime": "^2.1.5",
     "mocha": "^3.4.2",
     "ms-validation": "^5.0.1",
+    "nyc": "^11.0.2",
     "semantic-release": "^6.3.2",
     "sinon": "^2.3.4",
     "stdout-stream": "^1.4.0"
