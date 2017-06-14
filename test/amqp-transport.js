@@ -308,14 +308,15 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     });
 
     it('create priority queue', () => {
-      return this.priority._amqp.queueAsync({
-        autoDelete: false,
-        durable: true,
+      return this.priority.createQueue({
         queue: 'priority',
         arguments: {
           'x-max-priority': 5,
         },
-      });
+      })
+      .then(({ queue }) => (
+        this.priority.bindExchange(queue, ['priority'], this.priority._config.exchangeArgs)
+      ));
     });
 
     it('prioritize messages', () => {
@@ -330,7 +331,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
 
       const publish = Promise.map(messages, ({ message, priority }) => {
-        return this.publisher.publishAndWait('priority', message, { priority, timeout: 60000 });
+        return this.publisher.publishAndWait('priority', message, { priority, confirm: true, timeout: 60000 });
       });
 
       const consume = Promise.delay(500).then(() => this.priority.createConsumedQueue(spy, ['priority'], {
