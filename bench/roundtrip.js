@@ -2,6 +2,7 @@ const Promise = require('bluebird');
 const Benchmark = require('benchmark');
 const AMQPTransport = require('../lib');
 const fmt = require('util').format;
+
 const configuration = {
   exchange: 'test-exchange',
   connection: {

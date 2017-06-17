@@ -28,11 +28,13 @@ const AMQP = require('./utils/transport');
 const latency = require('./utils/latency');
 const generateErrorMessage = require('./utils/error');
 
+
 // serialization functions
 const { jsonSerializer, jsonDeserializer, MSError } = require('./utils/serialization');
 
 // cache references
 const { InvalidOperationError, ValidationError } = Errors;
+const { AmqpDLXError } = generateErrorMessage;
 
 /**
  * Initializes timeout
@@ -337,7 +339,7 @@ class AMQPTransport extends EventEmitter {
     return this
       .createQueue({
         ...this._config.privateQueueOpts,
-        queue: '',
+        queue: 'amq.rabbitmq.reply-to',
         router: this._privateMessageRouter,
       })
       .bind(this)
@@ -366,9 +368,21 @@ class AMQPTransport extends EventEmitter {
 
         // declare _replyTo queueName
         this._replyTo = options.queue;
-        setImmediate(this._boundEmit, 'private-queue-ready');
+
+        // DLX config
+        if (this._config.dlx.enable !== true) {
+          this._extraPublishOptions = {};
+        } else {
+          // bind exchange and queue
+          this._extraPublishOptions = {
+            'x-dead-letter-routing-key': this._config.dlx.name,
+          };
+        }
 
         return data;
+      })
+      .tap(() => {
+        setImmediate(this._boundEmit, 'private-queue-ready');
       });
   }
 
@@ -610,8 +624,13 @@ class AMQPTransport extends EventEmitter {
    * @param   {Object} options - additional options
    */
   publish(route, message, options = {}) {
+    // prepare exchange
+    const exchange = is.string(options.exchange)
+      ? options.exchange
+      : this._config.exchange;
+
     return this._amqp.publishAsync(
-      options.exchange || this._config.exchange,
+      exchange,
       route,
       stringify(message, jsonSerializer),
       this._publishOptions(options)
@@ -760,7 +779,7 @@ class AMQPTransport extends EventEmitter {
       const timer = setTimeout(initTimeout, timeout, replyQueue, reject, timeout, correlationId, routing);
 
       // push into queue
-      replyQueue.set(correlationId, { resolve, reject, timer, time, cache: hashKey });
+      replyQueue.set(correlationId, { resolve, reject, timer: null, time, cache: hashKey });
 
       // debugging
       this.log.trace('message pushed into reply queue in %s', latency(time));
@@ -867,21 +886,20 @@ class AMQPTransport extends EventEmitter {
    * @param  {Object} actions
    */
   _privateMessageRouter(message, headers) {
-    const { correlationId } = headers;
+    const { correlationId, replyTo, 'x-death': xDeath } = headers;
     const future = this._replyQueue.get(correlationId);
 
     if (!future) {
-      this.log.error(
-        'no recipient for the message %s and id %s',
-        message.error || message.data || message,
-        correlationId
-      );
+      this.log.error('no recipient for the message %j and id %s', message.error || message.data || message, correlationId);
 
-      if (headers.replyTo) {
+      if (xDeath) {
+        this.log.warn('message was not processed', message, xDeath);
+        return null;
+      }
+
+      if (replyTo) {
         const msg = fmt('no recipients found for message with correlation id %s', correlationId);
-        return this.reply(headers, {
-          error: new Errors.NotPermittedError(msg),
-        });
+        return this.reply(headers, { error: new Errors.NotPermittedError(msg) });
       }
 
       // mute
@@ -892,6 +910,11 @@ class AMQPTransport extends EventEmitter {
 
     clearTimeout(future.timer);
     this._replyQueue.delete(correlationId);
+
+    // if messag was dead-lettered - reject with an error
+    if (xDeath) {
+      return future.reject(new AmqpDLXError(xDeath, message));
+    }
 
     if (message.error) {
       const { error: originalError } = message;

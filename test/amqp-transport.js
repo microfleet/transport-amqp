@@ -12,6 +12,7 @@ const microtime = require('microtime');
 describe('AMQPTransport', function AMQPTransportTestSuite() {
   // require module
   const AMQPTransport = require('../src');
+  const { AmqpDLXError } = require('../src/utils/error');
   const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization');
   const latency = require('../src/utils/latency');
 
@@ -183,6 +184,37 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     after('close consumer', () => (
       this.concurrent.close()
+    ));
+  });
+
+  describe.only('DLX: enabled', () => {
+    before('init amqp', () => {
+      const transport = this.dlx = new AMQPTransport(configuration);
+      return transport.connect();
+    });
+
+    it('create queue, but do not consume', () => (
+      this.dlx.createQueue({
+        queue: 'dlx-consumer',
+      })
+    ));
+
+    it('publish message and receive DLX response', () => (
+      this.dlx.publishAndWait('dlx-consumer', { wont: 'be-consumed-queue' }, {
+        // we don't want to bind this queue for test reasons
+        exchange: '',
+        // set smaller timeout than 10s so we don't wait
+        // resulting x-message-ttl is 80% (?) of timeout
+        timeout: 2500,
+      })
+      .throw(new Error('did not reject'))
+      .catch(AmqpDLXError, (e) => {
+        console.log(e);
+      })
+    ));
+
+    after('close amqp', () => (
+      this.dlx.close()
     ));
   });
 
