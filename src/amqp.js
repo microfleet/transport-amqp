@@ -74,6 +74,7 @@ class AMQPTransport extends EventEmitter {
     'errors',
     'field',
     'reason',
+    'stack',
   ];
 
   /**
@@ -1044,10 +1045,6 @@ class AMQPTransport extends EventEmitter {
     // setup connection
     if ('setNoDelay' in connection) {
       connection.setNoDelay();
-    }
-
-    if ('socket' in connection && 'setNoDelay' in connection.socket) {
-      connection.socket.setNoDelay();
     }
 
     // emit connect event through log
