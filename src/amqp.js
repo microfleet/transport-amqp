@@ -20,6 +20,7 @@ const uniq = require('lodash/uniq');
 const omit = require('lodash/omit');
 const extend = require('lodash/extend');
 const pick = require('lodash/pick');
+const set = require('lodash/set');
 
 // local deps
 const pkg = require('../package.json');
@@ -122,6 +123,14 @@ class AMQPTransport extends EventEmitter {
     // Cached serialized value
     this._appIDString = stringify(this._appID);
     this._defaultOpts = config.defaultOpts;
+    this._extraQueueOptions = {};
+
+    // DLX config
+    if (config.dlx.enabled === true) {
+      // there is a quirk - we must make sure that no routing key matches queue name
+      // to avoid useless redistributions of the message
+      this._extraQueueOptions.arguments = { 'x-dead-letter-exchange': config.dlx.name };
+    }
   }
 
   /**
@@ -339,12 +348,12 @@ class AMQPTransport extends EventEmitter {
     return this
       .createQueue({
         ...this._config.privateQueueOpts,
-        queue: 'amq.rabbitmq.reply-to',
+        queue: '',
         router: this._privateMessageRouter,
       })
       .bind(this)
       .then(function privateQueueCreated(data) {
-        const { consumer, options } = data;
+        const { consumer, queue, options } = data;
 
         // remove existing listeners
         consumer.removeAllListeners('error');
@@ -369,17 +378,16 @@ class AMQPTransport extends EventEmitter {
         // declare _replyTo queueName
         this._replyTo = options.queue;
 
-        // DLX config
-        if (this._config.dlx.enable !== true) {
-          this._extraPublishOptions = {};
-        } else {
-          // bind exchange and queue
-          this._extraPublishOptions = {
-            'x-dead-letter-routing-key': this._config.dlx.name,
-          };
+        if (this._config.dlx.enabled !== true) {
+          return data;
         }
 
-        return data;
+        // bind temporary queue to direct (?) exchange for DLX messages
+        return this.bindExchange(queue, this._replyTo, {
+          exchange: this._config.dlx.name,
+          type: this._config.dlx.type,
+        })
+        .return(data);
       })
       .tap(() => {
         setImmediate(this._boundEmit, 'private-queue-ready');
@@ -444,7 +452,7 @@ class AMQPTransport extends EventEmitter {
       router: AMQPTransport.initRoutingFn(messageHandler, transport),
       neck: config.neck,
       queue: config.queue || '',
-    }, config.defaultQueueOpts, options);
+    }, config.defaultQueueOpts, this._extraQueueOptions, options);
 
     // bind to an opened exchange once connected
     function createExchange({ queue }) {
@@ -784,6 +792,9 @@ class AMQPTransport extends EventEmitter {
       // debugging
       this.log.trace('message pushed into reply queue in %s', latency(time));
 
+      // add custom header for routing over amq.headers exchange
+      set(options, 'headers.x-reply-to', replyTo);
+
       // this is to ensure that queue is not overflown and work will not
       // be completed later on
       publishMessage.call(this, routing, message, {
@@ -882,11 +893,12 @@ class AMQPTransport extends EventEmitter {
   /**
    * Distributes messages from a private queue
    * @param  {Mixed}  message
-   * @param  {Object} headers
+   * @param  {Object} properties
    * @param  {Object} actions
    */
-  _privateMessageRouter(message, headers) {
-    const { correlationId, replyTo, 'x-death': xDeath } = headers;
+  _privateMessageRouter(message, properties) {
+    const { correlationId, replyTo, headers } = properties;
+    const { 'x-death': xDeath } = headers;
     const future = this._replyQueue.get(correlationId);
 
     if (!future) {
@@ -899,7 +911,7 @@ class AMQPTransport extends EventEmitter {
 
       if (replyTo) {
         const msg = fmt('no recipients found for message with correlation id %s', correlationId);
-        return this.reply(headers, { error: new Errors.NotPermittedError(msg) });
+        return this.reply(properties, { error: new Errors.NotPermittedError(msg) });
       }
 
       // mute

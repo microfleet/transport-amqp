@@ -14,11 +14,12 @@ module.exports = {
    */
   dlx: {
     // whether to enable or not
-    enable: true,
+    enabled: true,
     // default direct exchange, which is already existent and all
     // queues are bound to it with the routing key matching queue name
     // (amq.default) - has no name, empty string
-    name: '',
+    name: 'amq.headers',
+    type: 'headers',
   },
 
   defaultOpts: {

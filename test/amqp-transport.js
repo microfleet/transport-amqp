@@ -187,29 +187,31 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     ));
   });
 
-  describe.only('DLX: enabled', () => {
+  describe('DLX: enabled', () => {
     before('init amqp', () => {
       const transport = this.dlx = new AMQPTransport(configuration);
       return transport.connect();
     });
 
     it('create queue, but do not consume', () => (
-      this.dlx.createQueue({
+      this.dlx.createConsumedQueue(() => {}, ['hub'], {
         queue: 'dlx-consumer',
       })
+      .spread(consumer => consumer.close())
     ));
 
     it('publish message and receive DLX response', () => (
-      this.dlx.publishAndWait('dlx-consumer', { wont: 'be-consumed-queue' }, {
-        // we don't want to bind this queue for test reasons
-        exchange: '',
+      // it will be published to the `dlx-consumer` queue
+      // and after 2250 ms moved to '' with routing key based on the
+      // headers values
+      this.dlx.publishAndWait('hub', { wont: 'be-consumed-queue' }, {
         // set smaller timeout than 10s so we don't wait
         // resulting x-message-ttl is 80% (?) of timeout
         timeout: 2500,
       })
       .throw(new Error('did not reject'))
       .catch(AmqpDLXError, (e) => {
-        console.log(e);
+        assert.equal(e.message, 'Expired from queue "dlx-consumer" with routing keys ["hub"] after 2250ms 1 time(s)');
       })
     ));
 
