@@ -437,6 +437,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
               this.proxy.interrupt(20);
             }, 10);
           })
+          .catch(() => {})
       ));
 
       function router(message, headers, actions, next) {

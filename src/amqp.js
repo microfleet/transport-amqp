@@ -129,7 +129,7 @@ class AMQPTransport extends EventEmitter {
     if (config.dlx.enabled === true) {
       // there is a quirk - we must make sure that no routing key matches queue name
       // to avoid useless redistributions of the message
-      this._extraQueueOptions.arguments = { 'x-dead-letter-exchange': config.dlx.name };
+      this._extraQueueOptions.arguments = { 'x-dead-letter-exchange': config.dlx.params.exchange };
     }
   }
 
@@ -330,10 +330,6 @@ class AMQPTransport extends EventEmitter {
             this._onConsume(params.router),
             next
           );
-
-          // TODO: should be done somewhere else?
-          // add error handling
-          // consumer.on('error', err => this.emit('error', err));
         });
       })
       .then(() => ({ queue, consumer, options }));
@@ -343,13 +339,17 @@ class AMQPTransport extends EventEmitter {
    * Create unnamed private queue (used for reply events)
    */
   createPrivateQueue() {
+    const replyTo = this._replyTo;
+
+    // reset current state
     this._replyTo = false;
 
     return this
       .createQueue({
         ...this._config.privateQueueOpts,
-        queue: '',
         router: this._privateMessageRouter,
+        // reuse same private queue name if it was specified before
+        queue: replyTo || `microfleet.${uuid.v4()}`,
       })
       .bind(this)
       .then(function privateQueueCreated(data) {
@@ -366,9 +366,15 @@ class AMQPTransport extends EventEmitter {
             // warning: other queues (not private one) should be handled manually
             this.log.error('consumer returned 404 error', err);
 
-            // reset replyTo queue
-            this._replyTo = false;
-            return consumer.close();
+            // reset replyTo queue and ignore all future errors
+            consumer.close();
+            consumer.removeAllListeners('error');
+            consumer.on('error', noop);
+
+            // recreate queue
+            if (this._replyTo !== false) this.createPrivateQueue();
+
+            return null;
           }
 
           this.emit('error', err);
@@ -378,16 +384,15 @@ class AMQPTransport extends EventEmitter {
         // declare _replyTo queueName
         this._replyTo = options.queue;
 
+        // return data right away
         if (this._config.dlx.enabled !== true) {
           return data;
         }
 
         // bind temporary queue to direct (?) exchange for DLX messages
-        return this.bindExchange(queue, this._replyTo, {
-          exchange: this._config.dlx.name,
-          type: this._config.dlx.type,
-        })
-        .return(data);
+        return this
+          .bindExchange(queue, this._replyTo, this._config.dlx.params)
+          .return(data);
       })
       .tap(() => {
         setImmediate(this._boundEmit, 'private-queue-ready');
