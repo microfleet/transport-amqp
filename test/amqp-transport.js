@@ -397,10 +397,11 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         debug: true,
         connection: {
           port: 9010,
+          heartbeat: 2000,
         },
         exchange: 'test-direct',
         exchangeArgs: {
-          autoDelete: true,
+          autoDelete: false,
           type: 'direct',
         },
         defaultQueueOpts: {
@@ -410,6 +411,35 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
 
       return this.transport.connect();
+    });
+
+    function router(message, headers, actions, next) {
+      switch (headers.routingKey) {
+        case '/':
+          // #3 all right, try answer
+          assert.deepEqual(message, { foo: 'bar' });
+          return next(null, { bar: 'baz' });
+        default:
+          throw new Error();
+      }
+    }
+
+    it('reestablishing consumed queue', () => {
+      const transport = this.transport;
+      const publish = () => transport.publishAndWait('/', { foo: 'bar' }, { confirm: true });
+
+      return transport
+        .createConsumedQueue(router, '/')
+        .tap(() => Promise.all([
+          publish(),
+          Promise.delay(250).then(publish),
+          Promise.delay(5000).then(publish),
+          Promise.delay(300).then(() => this.proxy.interrupt(3000)),
+        ]))
+        .spread((consumer, queue, establishConsumer) => Promise.join(
+          Promise.fromCallback(next => transport.stopConsumedQueue(consumer, establishConsumer, next)),
+          Promise.fromCallback(next => queue.delete(next))
+        ));
     });
 
     it('should create consumed queue', (done) => {
@@ -439,17 +469,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           })
           .catch(() => {})
       ));
-
-      function router(message, headers, actions, next) {
-        switch (headers.routingKey) {
-          case '/':
-            // #3 all right, try answer
-            assert.deepEqual(message, { foo: 'bar' });
-            return next(null, { bar: 'baz' });
-          default:
-            throw new Error();
-        }
-      }
 
       transport.createConsumedQueue(router)
         .spread((consumer, queue) => transport.bindExchange(queue, '/'))
