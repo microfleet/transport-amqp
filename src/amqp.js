@@ -847,7 +847,7 @@ class AMQPTransport extends EventEmitter {
       const timer = setTimeout(initTimeout, timeout, replyQueue, reject, timeout, correlationId, routing);
 
       // push into queue
-      replyQueue.set(correlationId, { resolve, reject, timer: null, time, cache: hashKey });
+      replyQueue.set(correlationId, { resolve, reject, timer, time, cache: hashKey });
 
       // debugging
       this.log.trace('message pushed into reply queue in %s', latency(time));
