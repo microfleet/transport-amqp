@@ -7,6 +7,24 @@ module.exports = {
     autoDelete: false,
     type: 'topic',
   },
+
+  /**
+   * Dead Letter Exchange Settings
+   * @type {Object}
+   */
+  dlx: {
+    // whether to enable or not
+    enabled: true,
+    params: {
+      // default direct exchange, which is already existent and all
+      // queues are bound to it with the routing key matching queue name
+      // (amq.default) - has no name, empty string
+      exchange: 'amq.headers',
+      type: 'headers',
+      autoDelete: false,
+    },
+  },
+
   defaultOpts: {
     deliveryMode: 1,
     confirm: false,
@@ -14,12 +32,15 @@ module.exports = {
     immediate: false,
     headers: {},
   },
+
   defaultQueueOpts: {
     // specify for consumer queues
   },
+
   privateQueueOpts: {
     // specify for private queues
   },
+
   timeout: 10000,
   debug: process.env.NODE_ENV === 'development',
   connection: {

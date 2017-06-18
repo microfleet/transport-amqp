@@ -12,6 +12,7 @@ const microtime = require('microtime');
 describe('AMQPTransport', function AMQPTransportTestSuite() {
   // require module
   const AMQPTransport = require('../src');
+  const { AmqpDLXError } = require('../src/utils/error');
   const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization');
   const latency = require('../src/utils/latency');
 
@@ -183,6 +184,39 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     after('close consumer', () => (
       this.concurrent.close()
+    ));
+  });
+
+  describe('DLX: enabled', () => {
+    before('init amqp', () => {
+      const transport = this.dlx = new AMQPTransport(configuration);
+      return transport.connect();
+    });
+
+    it('create queue, but do not consume', () => (
+      this.dlx.createConsumedQueue(() => {}, ['hub'], {
+        queue: 'dlx-consumer',
+      })
+      .spread(consumer => consumer.close())
+    ));
+
+    it('publish message and receive DLX response', () => (
+      // it will be published to the `dlx-consumer` queue
+      // and after 2250 ms moved to '' with routing key based on the
+      // headers values
+      this.dlx.publishAndWait('hub', { wont: 'be-consumed-queue' }, {
+        // set smaller timeout than 10s so we don't wait
+        // resulting x-message-ttl is 80% (?) of timeout
+        timeout: 2500,
+      })
+      .throw(new Error('did not reject'))
+      .catch(AmqpDLXError, (e) => {
+        assert.equal(e.message, 'Expired from queue "dlx-consumer" with routing keys ["hub"] after 2250ms 1 time(s)');
+      })
+    ));
+
+    after('close amqp', () => (
+      this.dlx.close()
     ));
   });
 
@@ -363,10 +397,11 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         debug: true,
         connection: {
           port: 9010,
+          heartbeat: 2000,
         },
         exchange: 'test-direct',
         exchangeArgs: {
-          autoDelete: true,
+          autoDelete: false,
           type: 'direct',
         },
         defaultQueueOpts: {
@@ -376,6 +411,35 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
 
       return this.transport.connect();
+    });
+
+    function router(message, headers, actions, next) {
+      switch (headers.routingKey) {
+        case '/':
+          // #3 all right, try answer
+          assert.deepEqual(message, { foo: 'bar' });
+          return next(null, { bar: 'baz' });
+        default:
+          throw new Error();
+      }
+    }
+
+    it('reestablishing consumed queue', () => {
+      const transport = this.transport;
+      const publish = () => transport.publishAndWait('/', { foo: 'bar' }, { confirm: true });
+
+      return transport
+        .createConsumedQueue(router, '/')
+        .tap(() => Promise.all([
+          publish(),
+          Promise.delay(250).then(publish),
+          Promise.delay(5000).then(publish),
+          Promise.delay(300).then(() => this.proxy.interrupt(3000)),
+        ]))
+        .spread((consumer, queue, establishConsumer) => Promise.join(
+          Promise.fromCallback(next => transport.stopConsumedQueue(consumer, establishConsumer, next)),
+          Promise.fromCallback(next => queue.delete(next))
+        ));
     });
 
     it('should create consumed queue', (done) => {
@@ -403,18 +467,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
               this.proxy.interrupt(20);
             }, 10);
           })
+          .catch(() => {})
       ));
-
-      function router(message, headers, actions, next) {
-        switch (headers.routingKey) {
-          case '/':
-            // #3 all right, try answer
-            assert.deepEqual(message, { foo: 'bar' });
-            return next(null, { bar: 'baz' });
-          default:
-            throw new Error();
-        }
-      }
 
       transport.createConsumedQueue(router)
         .spread((consumer, queue) => transport.bindExchange(queue, '/'))
