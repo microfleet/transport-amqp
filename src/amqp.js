@@ -7,12 +7,9 @@ const EventEmitter = require('eventemitter3');
 const os = require('os');
 const fmt = require('util').format;
 const is = require('is');
-const HLRU = require('hashlru');
-const hash = require('object-hash');
 const assert = require('assert');
 
 // lodash fp
-const every = require('lodash/every');
 const merge = require('lodash/merge');
 const defaults = require('lodash/defaults');
 const noop = require('lodash/noop');
@@ -23,13 +20,15 @@ const pick = require('lodash/pick');
 const set = require('lodash/set');
 
 // local deps
+const Joi = require('joi');
+const schema = require('./schema');
 const pkg = require('../package.json');
-const validator = require('./utils/validator');
 const AMQP = require('./utils/transport');
+const Cache = require('./utils/cache');
 const latency = require('./utils/latency');
+const loggerUtils = require('./loggers/levels');
 const generateErrorMessage = require('./utils/error');
 const { methods } = require('@microfleet/amqp-coffee/bin/src/lib/config').protocol;
-
 
 // serialization functions
 const { jsonSerializer, jsonDeserializer, MSError } = require('./utils/serialization');
@@ -56,10 +55,6 @@ const initTimeout = (replyQueue, reject, timeout, correlationId, routing) => {
  */
 class AMQPTransport extends EventEmitter {
 
-  static logLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
-
-  static defaultOpts = require('./defaults');
-
   static extendMessageProperties = [
     'deliveryTag',
     'redelivered',
@@ -83,25 +78,15 @@ class AMQPTransport extends EventEmitter {
    */
   constructor(opts = {}) {
     super();
-    const config = this._config = merge({}, AMQPTransport.defaultOpts, opts);
 
-    // default to array
-    if (is.string(config.listen)) {
-      config.listen = [config.listen];
-    }
+    // prepare configuration
+    const config = this.config = Joi.attempt(opts, schema);
 
-    // validate configuration
-    assert.ifError(validator.validateSync('amqp', config).error, `Invalid config: ${JSON.stringify(config)}`);
+    // prepares logger
+    this.log = loggerUtils.prepareLogger(config);
 
-    // bunyan logger
-    if (config.debug && !config.log) {
-      this.log = require('./utils/logger.js');
-    } else if (config.log && typeof config.log === 'object') {
-      const compatibleLogger = every(AMQPTransport.logLevels, level => is.fn(config.log[level]));
-      this.log = compatibleLogger ? config.log : require('bunyan-noop')();
-    } else {
-      this.log = require('bunyan-noop')();
-    }
+    // init cache or pass-through operations
+    this.cache = new Cache(config.cache);
 
     // setup instance
     this._replyTo = null;
@@ -110,12 +95,9 @@ class AMQPTransport extends EventEmitter {
     this._queues = new WeakMap();
     this._boundEmit = this.emit.bind(this);
 
-    // init cache if it's setup
-    if (config.cache) this._cache = HLRU(config.cache);
-
     // Form app id string for debugging
     this._appID = {
-      name: this._config.name,
+      name: this.config.name,
       host: os.hostname(),
       pid: process.pid,
       utils_version: pkg.version,
@@ -172,11 +154,11 @@ class AMQPTransport extends EventEmitter {
       .create(config, _messageHandler)
       .spread((amqp, messageHandler) => {
         // do not init queues
-        if (is.fn(messageHandler) === false && !amqp._config.listen) {
+        if (is.fn(messageHandler) === false && !amqp.config.listen) {
           return amqp;
         }
 
-        return amqp.createConsumedQueue(messageHandler, amqp._config.listen, _opts).return(amqp);
+        return amqp.createConsumedQueue(messageHandler, amqp.config.listen, _opts).return(amqp);
       });
   }
 
@@ -193,12 +175,12 @@ class AMQPTransport extends EventEmitter {
       .create(config, _messageHandler)
       .spread((amqp, messageHandler) => {
         // do not init queues
-        if (is.fn(messageHandler) === false && !amqp._config.listen) {
+        if (is.fn(messageHandler) === false && !amqp.config.listen) {
           return amqp;
         }
 
         return Promise
-          .resolve(amqp._config.listen)
+          .resolve(amqp.config.listen)
           .map((route, idx) => {
             const queueOpts = opts[idx] || {};
             return amqp.createConsumedQueue(messageHandler, [route], defaults(queueOpts, {
@@ -215,7 +197,7 @@ class AMQPTransport extends EventEmitter {
    * @return {Promise}
    */
   connect() {
-    const { _amqp: amqp, _config: config } = this;
+    const { _amqp: amqp, config } = this;
 
     if (amqp) {
       switch (amqp.state) {
@@ -286,57 +268,54 @@ class AMQPTransport extends EventEmitter {
    * @param {Object}  _params   - queue parameters
    */
   createQueue(_params) {
-    const { _amqp: amqp } = this;
+    const { _amqp: amqp, log, _onConsume } = this;
 
-    let queue;
-    let consumer;
-    let options;
-
-    // basis for params
+    // prepare params
+    const ctx = {};
     const params = is.string(_params) ? { queue: _params } : _params;
-
     defaults(params, {
       autoDelete: !params.queue,
       durable: !!params.queue,
     });
 
-    this.log.debug('initializing queue', params);
+    log.debug('initializing queue', params);
 
-    return amqp
-      .queueAsync(params)
-      .then((_queue) => {
-        queue = _queue;
+    return Promise
+      .bind(ctx)
+      .then(() => amqp.queueAsync(params))
+      .then(function declareQueue(queue) {
+        this.queue = queue;
         return queue.declareAsync();
       })
       .catch({ replyCode: 406 }, (err) => {
-        this.log.info('error declaring %s queue: %s', params.queue, err.replyText);
-        return queue.queueOptions;
+        log.info('error declaring %s queue: %s', params.queue, err.replyText);
       })
       .catch((err) => {
-        this.log.warn('failed to init queue', params.queue, err.replyText);
+        log.warn('failed to init queue', params.queue, err.replyText);
         throw err;
       })
-      .then((_options) => {
-        options = { ..._options };
-        this.log.info('queue "%s" created', options.queue);
+      .then(function establishConsumer() {
+        // copy queue options
+        const options = this.options = { ...this.queue.queueOptions };
+        log.info('queue "%s" created', options.queue);
 
         if (!params.router) {
           return null;
         }
 
         return Promise.fromNode((next) => {
-          this.log.info('consumer is being created on "%s"', options.queue);
+          log.info('consumer is being created on "%s"', options.queue);
 
           // setup consumer
-          consumer = amqp.consume(
+          this.consumer = amqp.consume(
             options.queue,
             AMQPTransport._queueOpts(params),
-            this._onConsume(params.router),
+            _onConsume(params.router),
             next
           );
         });
       })
-      .then(() => ({ queue, consumer, options }));
+      .return(ctx);
   }
 
   /**
@@ -350,7 +329,7 @@ class AMQPTransport extends EventEmitter {
 
     return this
       .createQueue({
-        ...this._config.privateQueueOpts,
+        ...this.config.privateQueueOpts,
         autoDelete: true,
         router: this._privateMessageRouter,
         // reuse same private queue name if it was specified before
@@ -405,13 +384,13 @@ class AMQPTransport extends EventEmitter {
         this._replyTo = options.queue;
 
         // return data right away
-        if (this._config.dlx.enabled !== true) {
+        if (this.config.dlx.enabled !== true) {
           return data;
         }
 
         // bind temporary queue to direct (?) exchange for DLX messages
         return this
-          .bindExchange(queue, this._replyTo, this._config.dlx.params)
+          .bindExchange(queue, this._replyTo, this.config.dlx.params)
           .return(data);
       })
       .tap(() => {
@@ -456,13 +435,13 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
-   * @param {Function} messageHandler2
+   * @param {Function} messageHandler
    * @param {Array} listen
    * @param {Object} options
    */
   createConsumedQueue(messageHandler, listen = [], options = {}) {
-    if (is.fn(messageHandler) === false && Array.isArray(listen) === false) {
-      throw new Errors.ArgumentError('messageHandler or listen must be present');
+    if (is.fn(messageHandler) === false || Array.isArray(listen) === false) {
+      throw new Errors.ArgumentError('messageHandler and listen must be present');
     }
 
     if (is.object(options) === false) {
@@ -470,7 +449,7 @@ class AMQPTransport extends EventEmitter {
     }
 
     const transport = this;
-    const config = this._config;
+    const config = this.config;
     const queueOptions = merge({
       router: AMQPTransport.initRoutingFn(messageHandler, transport),
       neck: config.neck,
@@ -584,7 +563,10 @@ class AMQPTransport extends EventEmitter {
 
         return [consumer, queue, establishConsumer];
       })
-      .catch(Errors.ConnectionError, () => Promise.delay(500).then(establishConsumer));
+      .catch(Errors.ConnectionError, (e) => {
+        transport.log.warn('[consumed-queue-down]', e);
+        return Promise.delay(500).then(establishConsumer);
+      });
     }
 
     // make sure we recreate queue and establish consumer on reconnect
@@ -617,8 +599,8 @@ class AMQPTransport extends EventEmitter {
 
     // default params
     defaults(params, {
-      exchange: this._config.exchange,
-      type: this._config.exchangeArgs.type,
+      exchange: this.config.exchange,
+      type: this.config.exchangeArgs.type,
       durable: true,
     });
 
@@ -664,7 +646,7 @@ class AMQPTransport extends EventEmitter {
    * @param {string} _routes - messages sent to this route will be delivered to queue
    */
   unbindExchange(queue, _routes) {
-    const exchange = this._config.exchange;
+    const exchange = this.config.exchange;
     const routes = Array.isArray(_routes) ? _routes : [_routes];
 
     return Promise.map(routes, route => (
@@ -695,7 +677,7 @@ class AMQPTransport extends EventEmitter {
     // prepare exchange
     const exchange = is.string(options.exchange)
       ? options.exchange
-      : this._config.exchange;
+      : this.config.exchange;
 
     return this._amqp.publishAsync(
       exchange,
@@ -826,24 +808,29 @@ class AMQPTransport extends EventEmitter {
         });
     }
 
+    /**
+     * Process cached responses
+     */
+    let hashKey;
+    const maxAge = options.cache;
+    if (maxAge) {
+      const cachedResponse = this.cache.get(message, maxAge);
+      if (cachedResponse !== null) {
+        if (typeof cachedResponse === 'object') {
+          return Promise.resolve(cachedResponse.value);
+        }
+
+        hashKey = cachedResponse;
+      }
+    }
+
+    // set timer
+    const correlationId = options.correlationId || uuid.v4();
+    const timeout = options.timeout || this.config.timeout;
+    const replyQueue = this._replyQueue;
+
     // slightly longer timeout, if message was not consumed in time, it will return with expiration
     return new Promise((resolve, reject) => {
-      let hashKey;
-
-      const cache = options.cache;
-      if (cache && this._cache) {
-        hashKey = hash(message);
-        const response = this._cache.get(hashKey);
-        this.log.debug('evaluating cache for %s', hashKey, response);
-        if (response && latency(response.maxAge) < options.cache) {
-          return resolve(response.value);
-        }
-      }
-
-      // set timer
-      const correlationId = options.correlationId || uuid.v4();
-      const timeout = options.timeout || this._config.timeout;
-      const replyQueue = this._replyQueue;
       const timer = setTimeout(initTimeout, timeout, replyQueue, reject, timeout, correlationId, routing);
 
       // push into queue
@@ -914,7 +901,7 @@ class AMQPTransport extends EventEmitter {
 
     // append request timeout in headers
     defaults(opts.headers, {
-      timeout: opts.timeout || this._config.timeout,
+      timeout: opts.timeout || this.config.timeout,
     });
 
     return opts;
@@ -932,9 +919,11 @@ class AMQPTransport extends EventEmitter {
    *  - @param {Function} reject(): function: only used when prefetchCount is specified
    *  - @param {Function} retry(): function: only used when prefetchCount is specified
    */
-  _onConsume(router) {
+  _onConsume = (router) => {
     const parseInput = this._parseInput;
     const amqpTransport = this;
+
+    assert(is.fn(router), '`router` must be a function');
 
     return function consumeMessage(message) {
       // pick extra properties
@@ -1008,12 +997,13 @@ class AMQPTransport extends EventEmitter {
       return future.reject(error);
     }
 
-    // enabled caching
-    const cache = future.cache;
+    // retrieve data
     const data = message.data;
-    if (cache && this._cache) {
-      this.log.debug('setting cache for %s', cache);
-      this._cache.set(cache, { maxAge: process.hrtime(), value: data });
+
+    // if cache key is set - try to save it
+    const cacheKey = future.cache;
+    if (cacheKey) {
+      this.cache.set(cacheKey, data);
     }
 
     return future.resolve(data);
@@ -1052,7 +1042,7 @@ class AMQPTransport extends EventEmitter {
 
     // https://github.com/dropbox/amqp-coffee#reconnect-flow
     // recreate unnamed private queue
-    if (this._replyTo || this._config.private) {
+    if ((this._replyTo || this.config.private) && this._replyTo !== false) {
       this.createPrivateQueue();
     }
 

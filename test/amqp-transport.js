@@ -1,6 +1,5 @@
 /* eslint-disable no-console, max-len, promise/always-return */
 
-const Errors = require('common-errors');
 const Promise = require('bluebird');
 const Proxy = require('@microfleet/amqp-coffee/test/proxy').route;
 const ld = require('lodash');
@@ -72,7 +71,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   it('is able to be initialized', () => {
     const amqp = new AMQPTransport(configuration);
     assert(amqp instanceof AMQPTransport);
-    assert(Object.prototype.hasOwnProperty.call(amqp, '_config'));
+    assert(Object.prototype.hasOwnProperty.call(amqp, 'config'));
     assert(Object.prototype.hasOwnProperty.call(amqp, '_replyQueue'));
   });
 
@@ -87,7 +86,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
     }
 
-    assert.throws(createTransport, Errors.ValidationError);
+    assert.throws(createTransport, 'ValidationError');
   });
 
   it('is able to connect to rabbitmq', () => {
@@ -349,7 +348,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         },
       })
       .then(({ queue }) => (
-        this.priority.bindExchange(queue, ['priority'], this.priority._config.exchangeArgs)
+        this.priority.bindExchange(queue, ['priority'], this.priority.config.exchangeArgs)
       ));
     });
 
@@ -429,7 +428,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       const publish = () => transport.publishAndWait('/', { foo: 'bar' }, { confirm: true });
 
       return transport
-        .createConsumedQueue(router, '/')
+        .createConsumedQueue(router, ['/'])
         .tap(() => Promise.all([
           publish(),
           Promise.delay(250).then(publish),
