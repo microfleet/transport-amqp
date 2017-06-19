@@ -71,8 +71,9 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   it('is able to be initialized', () => {
     const amqp = new AMQPTransport(configuration);
     assert(amqp instanceof AMQPTransport);
-    assert(Object.prototype.hasOwnProperty.call(amqp, 'config'));
-    assert(Object.prototype.hasOwnProperty.call(amqp, '_replyQueue'));
+    assert(amqp.config, 'config defined');
+    assert(amqp.replyStorage, 'reply storage initialized');
+    assert(amqp.cache, 'cache storage initialized');
   });
 
   it('fails on invalid configuration', () => {
@@ -231,7 +232,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       const promises = [
         publish(),
         Promise.delay(300).then(publish),
-        Promise.delay(3000).then(publish),
+        Promise.delay(5000).then(publish),
       ];
 
       return Promise.all(promises).spread((initial, cached, nonCached) => {
@@ -436,7 +437,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           Promise.delay(300).then(() => this.proxy.interrupt(3000)),
         ]))
         .spread((consumer, queue, establishConsumer) => Promise.join(
-          Promise.fromCallback(next => transport.stopConsumedQueue(consumer, establishConsumer, next)),
+          transport.stopConsumedQueue(consumer, establishConsumer),
           Promise.fromCallback(next => queue.delete(next))
         ));
     });

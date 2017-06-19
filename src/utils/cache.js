@@ -1,6 +1,7 @@
 const HLRU = require('hashlru');
 const hash = require('object-hash');
 const latency = require('./latency');
+const is = require('is');
 
 class Cache {
   constructor(size) {
@@ -16,6 +17,10 @@ class Cache {
     if (this.enabled === false) {
       // eslint-disable-next-line no-console
       console.warn('tried to use disabled cache');
+      return null;
+    }
+
+    if (is.number(maxAge) === false) {
       return null;
     }
 
@@ -37,6 +42,11 @@ class Cache {
     if (this.enabled === false) {
       // eslint-disable-next-line no-console
       console.warn('tried to use disabled cache');
+      return null;
+    }
+
+    // only use string keys
+    if (typeof key !== 'string') {
       return null;
     }
 
