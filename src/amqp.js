@@ -41,7 +41,30 @@ const { jsonSerializer, jsonDeserializer } = require('./utils/serialization');
 
 // cache references
 const { AmqpDLXError } = generateErrorMessage;
-const { closeConsumer, initRoutingFn, wrapError, setQoS } = helpers;
+const { closeConsumer, wrapError, setQoS } = helpers;
+
+/**
+ * Routing function HOC with reply RPC enhancer
+ * @param  {Function} messageHandler
+ * @param  {AMQPTransport} transport
+ * @returns {Function}
+ */
+const initRoutingFn = (messageHandler, transport) => {
+  return function router(message, properties, actions) {
+    let next;
+
+    if (!properties.replyTo || !properties.correlationId) {
+      next = transport.noop;
+    } else {
+      next = function replyToRequest(error, data) {
+        return transport.reply(properties, { error, data })
+          .catch(transport.noop);
+      };
+    }
+
+    return messageHandler(message, properties, actions, next);
+  };
+};
 
 /**
  * @class AMQPTransport
@@ -769,7 +792,7 @@ class AMQPTransport extends EventEmitter {
   /**
    *
    * @param  {Object} message
-   *   - @param {Object} data: a getter that returns the data in its parsed form, eg a
+   *  - @param {Object} data: a getter that returns the data in its parsed form, eg a
    *                           parsed json object, a string, or the raw buffer
    *  - @param {Object} raw: the raw buffer that was returned
    *  - @param {Object} properties: headers specified for the message
@@ -784,17 +807,21 @@ class AMQPTransport extends EventEmitter {
 
     assert(is.fn(router), '`router` must be a function');
 
-    return function consumeMessage(message) {
-      // pick extra properties
-      extend(message.properties, pick(message, AMQPTransport.extendMessageProperties));
+    return function consumeMessage(originalMessage) {
+      const properties = originalMessage.properties;
 
-      // do not access .data, because it's a getter and will trigger parses on
-      // certain type contents
-      const data = parseInput.call(amqpTransport, message.raw);
-
-      // pass to the message router
-      // data - headers - actions
-      router.call(amqpTransport, data, message.properties, message);
+      // pass to the consumer message router
+      // data - properties - actions
+      return router.call(
+        // call context
+        amqpTransport,
+        // parsed input data
+        parseInput.call(amqpTransport, originalMessage.raw), // message data
+        // message properties
+        extend(properties, pick(originalMessage, AMQPTransport.extendMessageProperties)),
+        // original message
+        originalMessage
+      );
     };
   }
 

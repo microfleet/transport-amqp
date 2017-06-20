@@ -101,27 +101,6 @@ exports.closeConsumer = function closeConsumer(consumer) {
   ));
 };
 
-/**
- * Routing function HOC with reply RPC enhancer
- * @param  {Function} messageHandler
- * @returns {Function}
- */
-exports.initRoutingFn = function initRoutingFn(messageHandler, transport) {
-  return function router(message, properties, actions) {
-    let next;
-
-    if (!properties.replyTo || !properties.correlationId) {
-      next = transport.noop;
-    } else {
-      next = function replyToRequest(error, data) {
-        return transport.reply(properties, { error, data }).catch(transport.noop);
-      };
-    }
-
-    return messageHandler(message, properties, actions, next);
-  };
-};
-
 // error data that is going to be copied
 const copyErrorData = [
   'code', 'name', 'errors',
