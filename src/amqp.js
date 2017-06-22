@@ -6,6 +6,7 @@ const EventEmitter = require('eventemitter3');
 const os = require('os');
 const is = require('is');
 const assert = require('assert');
+const opentracing = require('opentracing');
 const {
   ConnectionError,
   NotPermittedError,
@@ -32,7 +33,7 @@ const ReplyStorage = require('./utils/reply-storage');
 const Backoff = require('./utils/recovery');
 const Cache = require('./utils/cache');
 const latency = require('./utils/latency');
-const loggerUtils = require('./loggers/levels');
+const loggerUtils = require('./loggers');
 const generateErrorMessage = require('./utils/error');
 const helpers = require('./helpers');
 
@@ -42,6 +43,7 @@ const { jsonSerializer, jsonDeserializer } = require('./utils/serialization');
 // cache references
 const { AmqpDLXError } = generateErrorMessage;
 const { closeConsumer, wrapError, setQoS } = helpers;
+const { Tags, FORMAT_TEXT_MAP } = opentracing;
 
 /**
  * Routing function HOC with reply RPC enhancer
@@ -51,16 +53,23 @@ const { closeConsumer, wrapError, setQoS } = helpers;
  */
 const initRoutingFn = (messageHandler, transport) => {
   return function router(message, properties, actions) {
-    let next;
+    // add instrumentation
+    const appId = transport._parseInput(properties.appId);
 
-    if (!properties.replyTo || !properties.correlationId) {
-      next = transport.noop;
-    } else {
-      next = function replyToRequest(error, data) {
-        return transport.reply(properties, { error, data })
-          .catch(transport.noop);
-      };
-    }
+    // opentracing instrumentation
+    const childOf = this.tracer.extract(FORMAT_TEXT_MAP, properties.headers || {});
+    const span = this.tracer.startSpan(properties.routingKey, {
+      childOf,
+      tags: {
+        [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_SERVER,
+        [Tags.PEER_SERVICE]: appId.name,
+        [Tags.PEER_HOSTNAME]: appId.host,
+      },
+    });
+
+    const next = !properties.replyTo || !properties.correlationId
+      ? (error, data) => transport.noop(error, data, span)
+      : (error, data) => transport.reply(properties, { error, data }, span);
 
     return messageHandler(message, properties, actions, next);
   };
@@ -107,6 +116,9 @@ class AMQPTransport extends EventEmitter {
 
     // delay settings for reconnect
     this.recovery = new Backoff(config.recovery);
+
+    // init open tracer - default one is noop
+    this.tracer = config.tracer || new opentracing.Tracer();
 
     // setup instance
     this._replyTo = null;
@@ -174,10 +186,19 @@ class AMQPTransport extends EventEmitter {
    * @param  {Error} err
    * @param  {Mixed} data
    */
-  noop = (error, data) => {
+  noop(error, data, span) {
     const msg = stringify({ error, data }, jsonSerializer);
     this.log.debug('when replying to message with %s response could not be delivered', msg);
-  };
+
+    if (span) {
+      if (error) {
+        span.setTag(Tags.ERROR, true);
+        span.logEvent('error_msg', error);
+      }
+
+      span.finish();
+    }
+  }
 
   close() {
     const { _amqp: amqp } = this;
@@ -605,13 +626,30 @@ class AMQPTransport extends EventEmitter {
    */
   publishAndWait(route, message, options = {}) {
     const time = process.hrtime();
+
+    // opentracing instrumentation
+    const span = this.tracer.startSpan(route, {
+      childOf: options.ctx && this.tracer.extract(FORMAT_TEXT_MAP, options.ctx),
+      tags: {
+        [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_CLIENT,
+        [Tags.MESSAGE_BUS_DESTINATION]: route,
+      },
+    });
+
     return this.createMessageHandler(
       route,
       message,
       options,
-      this.publish
+      this.publish,
+      span
     )
-    .tap(() => {
+    .catch((e) => {
+      span.setTag(Tags.ERROR, true);
+      span.logEvent('error_msg', e);
+      return Promise.reject(e);
+    })
+    .finally(() => {
+      span.finish();
       this.log.trace('publishAndWait took %s ms', latency(time));
     });
   }
@@ -640,12 +678,57 @@ class AMQPTransport extends EventEmitter {
    * @param {object} options      additional options
    */
   sendAndWait(queue, message, options = {}) {
+    const time = process.hrtime();
+
+    // opentracing instrumentation
+    const childOf = this.tracer.extract(FORMAT_TEXT_MAP, options.ctx);
+    const span = this.tracer.startSpan(queue, {
+      childOf,
+      tags: {
+        [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_CLIENT,
+        [Tags.MESSAGE_BUS_DESTINATION]: queue,
+      },
+    });
+
     return this.createMessageHandler(
       queue,
       message,
       options,
       this.send
-    );
+    )
+    .catch((e) => {
+      span.setTag(Tags.ERROR, true);
+      span.logEvent('error_msg', e);
+      return Promise.reject(e);
+    })
+    .finally(() => {
+      span.finish();
+      this.log.trace('sendAndWait took %s ms', latency(time));
+    });
+  }
+
+  /**
+   * Specifies default publishing options
+   * @param  {Object} options
+   * @param  {String} options.exchange - will be overwritten by exchange thats passed
+   *  in the publish/send methods
+   *  https://github.com/dropbox/amqp-coffee/blob/6d99cf4c9e312c9e5856897ab33458afbdd214e5/src/lib/Publisher.coffee#L90
+   * @return {Object}
+   */
+  _publishOptions(options = {}) {
+    const opts = {
+      ...options,
+      appId: this._appIDString,
+    };
+
+    defaults(opts, this._defaultOpts);
+
+    // append request timeout in headers
+    defaults(opts.headers, {
+      timeout: opts.timeout || this.config.timeout,
+    });
+
+    return opts;
   }
 
   /**
@@ -654,13 +737,31 @@ class AMQPTransport extends EventEmitter {
    * @param   {Object} headers - incoming message headers
    * @param   {Mixed}  message - message to send
    */
-  reply(properties, message) {
+  reply(properties, message, span) {
     if (!properties.replyTo || !properties.correlationId) {
       const err = new ValidationError('replyTo and correlationId not found in properties', 400);
+
+      if (span) {
+        span.setTag(Tags.ERROR, true);
+        span.logEvent('error_msg', err);
+        span.finish();
+      }
+
       return Promise.reject(err);
     }
 
-    return this.send(properties.replyTo, message, { correlationId: properties.correlationId });
+    const promise = this.send(properties.replyTo, message, { correlationId: properties.correlationId });
+
+    return span === undefined
+      ? promise
+      : promise.finally(() => {
+        if (message.error) {
+          span.setTag(Tags.ERROR, true);
+          span.logEvent('error_msg', message.error);
+        }
+
+        span.finish();
+      });
   }
 
   /**
@@ -697,7 +798,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {String} errorMessage
    * @return {Promise}
    */
-  createMessageHandler(routing, message, options, publishMessage) {
+  createMessageHandler(routing, message, options, publishMessage, span) {
     const replyTo = options.replyTo || this._replyTo;
     const time = process.hrtime();
 
@@ -709,9 +810,9 @@ class AMQPTransport extends EventEmitter {
 
       return promise
         .return(this)
-        .call('createMessageHandler', routing, message, options, publishMessage)
-        .tap(() => {
-          this.log.debug('private queue created in %s', latency(time));
+        .call('createMessageHandler', routing, message, options, publishMessage, span)
+        .finally(() => {
+          this.log.debug('private queue resolved after %s', latency(time));
         });
     }
 
@@ -747,6 +848,11 @@ class AMQPTransport extends EventEmitter {
       // add custom header for routing over amq.headers exchange
       set(options, 'headers.x-reply-to', replyTo);
 
+      // add opentracing instrumentation
+      if (span) {
+        this.tracer.inject(span.context(), FORMAT_TEXT_MAP, options.headers);
+      }
+
       // this is to ensure that queue is not overflown and work will not
       // be completed later on
       publishMessage.call(this, routing, message, {
@@ -763,30 +869,6 @@ class AMQPTransport extends EventEmitter {
         replyStorage.reject(correlationId, err);
       });
     });
-  }
-
-  /**
-   * Specifies default publishing options
-   * @param  {Object} options
-   * @param  {String} options.exchange - will be overwritten by exchange thats passed
-   *  in the publish/send methods
-   *  https://github.com/dropbox/amqp-coffee/blob/6d99cf4c9e312c9e5856897ab33458afbdd214e5/src/lib/Publisher.coffee#L90
-   * @return {Object}
-   */
-  _publishOptions(options = {}) {
-    const opts = {
-      ...options,
-      appId: this._appIDString,
-    };
-
-    defaults(opts, this._defaultOpts);
-
-    // append request timeout in headers
-    defaults(opts.headers, {
-      timeout: opts.timeout || this.config.timeout,
-    });
-
-    return opts;
   }
 
   /**

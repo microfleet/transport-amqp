@@ -1,6 +1,6 @@
 // quick noop-logger implementation
 const noop = require('lodash/noop');
-const logLevels = require('./levels');
+const logLevels = require('./index').levels;
 
 const assignLevels = (prev, level) => {
   prev[level] = noop;

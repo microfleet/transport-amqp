@@ -43,6 +43,8 @@ module.exports = Joi.object({
   neck: Joi.number().min(0)
     .description('if defined - queues will enter QoS mode with required ack & prefetch size of neck'),
 
+  tracer: Joi.object(),
+
   connection: Joi.object({
     host: Joi.alternatives().try(
       Joi.string(),
