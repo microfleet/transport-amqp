@@ -45,6 +45,18 @@ const { AmqpDLXError } = generateErrorMessage;
 const { closeConsumer, wrapError, setQoS } = helpers;
 const { Tags, FORMAT_TEXT_MAP } = opentracing;
 
+// wrap promise
+const wrapPromise = (span, promise) => (
+  promise.catch((error) => {
+    span.setTag(Tags.ERROR, true);
+    span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
+    throw error;
+  })
+  .finally(() => {
+    span.finish();
+  })
+);
+
 /**
  * Routing function HOC with reply RPC enhancer
  * @param  {Function} messageHandler
@@ -58,13 +70,14 @@ const initRoutingFn = (messageHandler, transport) => {
 
     // opentracing instrumentation
     const childOf = this.tracer.extract(FORMAT_TEXT_MAP, properties.headers || {});
-    const span = this.tracer.startSpan(properties.routingKey, {
+    const span = this.tracer.startSpan(`onConsume:${properties.routingKey}`, {
       childOf,
-      tags: {
-        [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_SERVER,
-        [Tags.PEER_SERVICE]: appId.name,
-        [Tags.PEER_HOSTNAME]: appId.host,
-      },
+    });
+
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_SERVER,
+      [Tags.PEER_SERVICE]: appId.name,
+      [Tags.PEER_HOSTNAME]: appId.host,
     });
 
     const next = !properties.replyTo || !properties.correlationId
@@ -193,7 +206,7 @@ class AMQPTransport extends EventEmitter {
     if (span) {
       if (error) {
         span.setTag(Tags.ERROR, true);
-        span.logEvent('error_msg', error);
+        span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
       }
 
       span.finish();
@@ -603,18 +616,58 @@ class AMQPTransport extends EventEmitter {
    * @param   {Mixed}  message - message to send - will be coerced to string via stringify
    * @param   {Object} options - additional options
    */
-  publish(route, message, options = {}) {
+  publish(route, message, options = {}, parentSpan) {
+    const span = this.tracer.startSpan(`publish:${route}`, {
+      childOf: parentSpan,
+    });
+
     // prepare exchange
     const exchange = is.string(options.exchange)
       ? options.exchange
       : this.config.exchange;
 
-    return this._amqp.publishAsync(
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_MESSAGING_PRODUCER,
+      [Tags.MESSAGE_BUS_DESTINATION]: `${exchange}:${route}`,
+    });
+
+    return wrapPromise(span, this._amqp.publishAsync(
       exchange,
       route,
       stringify(message, jsonSerializer),
       this._publishOptions(options)
-    );
+    ));
+  }
+
+  /**
+   * Send message to specified queue directly
+   *
+   * @param {String} queue     - destination queue
+   * @param {Mixed}  message   - message to send
+   * @param {Object} [options] - additional options
+   * @param {opentracing.Span} [parentSpan] - Existing span.
+   */
+  send(queue, message, options = {}, parentSpan) {
+    const span = this.tracer.startSpan(`send:${queue}`, {
+      childOf: parentSpan,
+    });
+
+    // prepare exchange
+    const exchange = is.string(options.exchange)
+      ? options.exchange
+      : '';
+
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_MESSAGING_PRODUCER,
+      [Tags.MESSAGE_BUS_DESTINATION]: `${exchange || '<empty>'}:${queue}`,
+    });
+
+    return wrapPromise(span, this._amqp.publishAsync(
+      exchange,
+      queue,
+      stringify(message, jsonSerializer),
+      this._publishOptions(options)
+    ));
   }
 
   /**
@@ -624,50 +677,24 @@ class AMQPTransport extends EventEmitter {
    * @param  {Object} options
    * @return {Promise}
    */
-  publishAndWait(route, message, options = {}) {
-    const time = process.hrtime();
-
+  publishAndWait(route, message, options = {}, parentSpan) {
     // opentracing instrumentation
-    const span = this.tracer.startSpan(route, {
-      childOf: options.ctx && this.tracer.extract(FORMAT_TEXT_MAP, options.ctx),
-      tags: {
-        [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_CLIENT,
-        [Tags.MESSAGE_BUS_DESTINATION]: route,
-      },
+    const span = this.tracer.startSpan(`publishAndWait:${route}`, {
+      childOf: parentSpan,
     });
 
-    return this.createMessageHandler(
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_CLIENT,
+      [Tags.MESSAGE_BUS_DESTINATION]: route,
+    });
+
+    return wrapPromise(span, this.createMessageHandler(
       route,
       message,
       options,
       this.publish,
       span
-    )
-    .catch((e) => {
-      span.setTag(Tags.ERROR, true);
-      span.logEvent('error_msg', e);
-      return Promise.reject(e);
-    })
-    .finally(() => {
-      span.finish();
-      this.log.trace('publishAndWait took %s ms', latency(time));
-    });
-  }
-
-  /**
-   * Send message to specified queue directly
-   *
-   * @param {String} queue     - destination queue
-   * @param {Mixed}  message   - message to send
-   * @param {Object} [options] - additional options
-   */
-  send(queue, message, options = {}) {
-    return this._amqp.publishAsync(
-      options.exchange || '',
-      queue,
-      stringify(message, jsonSerializer),
-      this._publishOptions(options)
-    );
+    ));
   }
 
   /**
@@ -677,34 +704,23 @@ class AMQPTransport extends EventEmitter {
    * @param {any} message         message to send
    * @param {object} options      additional options
    */
-  sendAndWait(queue, message, options = {}) {
-    const time = process.hrtime();
-
+  sendAndWait(queue, message, options = {}, parentSpan) {
     // opentracing instrumentation
-    const childOf = this.tracer.extract(FORMAT_TEXT_MAP, options.ctx);
-    const span = this.tracer.startSpan(queue, {
-      childOf,
-      tags: {
-        [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_CLIENT,
-        [Tags.MESSAGE_BUS_DESTINATION]: queue,
-      },
+    const span = this.tracer.startSpan(`sendAndWait:${queue}`, {
+      childOf: parentSpan,
     });
 
-    return this.createMessageHandler(
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_CLIENT,
+      [Tags.MESSAGE_BUS_DESTINATION]: queue,
+    });
+
+    return wrapPromise(span, this.createMessageHandler(
       queue,
       message,
       options,
       this.send
-    )
-    .catch((e) => {
-      span.setTag(Tags.ERROR, true);
-      span.logEvent('error_msg', e);
-      return Promise.reject(e);
-    })
-    .finally(() => {
-      span.finish();
-      this.log.trace('sendAndWait took %s ms', latency(time));
-    });
+    ));
   }
 
   /**
@@ -739,29 +755,22 @@ class AMQPTransport extends EventEmitter {
    */
   reply(properties, message, span) {
     if (!properties.replyTo || !properties.correlationId) {
-      const err = new ValidationError('replyTo and correlationId not found in properties', 400);
+      const error = new ValidationError('replyTo and correlationId not found in properties', 400);
 
       if (span) {
         span.setTag(Tags.ERROR, true);
-        span.logEvent('error_msg', err);
+        span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
         span.finish();
       }
 
-      return Promise.reject(err);
+      return Promise.reject(error);
     }
 
-    const promise = this.send(properties.replyTo, message, { correlationId: properties.correlationId });
+    const promise = this.send(properties.replyTo, message, { correlationId: properties.correlationId }, span);
 
     return span === undefined
       ? promise
-      : promise.finally(() => {
-        if (message.error) {
-          span.setTag(Tags.ERROR, true);
-          span.logEvent('error_msg', message.error);
-        }
-
-        span.finish();
-      });
+      : wrapPromise(span, promise);
   }
 
   /**
@@ -860,7 +869,7 @@ class AMQPTransport extends EventEmitter {
         replyTo,
         correlationId,
         expiration: Math.ceil(timeout * 0.9).toString(),
-      })
+      }, span)
       .tap(() => {
         this.log.trace('message published in %s', latency(time));
       })
