@@ -42,15 +42,15 @@ Promise.join(
   AMQPTransport.connect(opts, listener),
   publisher.connect()
 )
-.spread(consumer => {
+.spread((consumer) => {
   const suite = new Benchmark.Suite('RabbitMQ');
   suite.add('Round-trip', {
     defer: true,
     fn: function test(deferred) {
       return publisher
         .publishAndWait('tq', 'tq')
-        .then(() => {
-          messagesSent++;
+        .finally(() => {
+          messagesSent += 1;
           deferred.resolve();
         });
     },

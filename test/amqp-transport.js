@@ -1,6 +1,5 @@
 /* eslint-disable no-console, max-len, promise/always-return */
 
-const Errors = require('common-errors');
 const Promise = require('bluebird');
 const Proxy = require('@microfleet/amqp-coffee/test/proxy').route;
 const ld = require('lodash');
@@ -8,6 +7,33 @@ const stringify = require('json-stringify-safe');
 const sinon = require('sinon');
 const assert = require('assert');
 const microtime = require('microtime');
+const MockTracer = require('opentracing/lib/mock_tracer').MockTracer;
+
+// add inject/extract implementation
+MockTracer.prototype._inject = (span, format, carrier) => {
+  carrier['x-mock-span-uuid'] = span._span.uuid();
+};
+
+MockTracer.prototype._extract = function extract(format, carrier) {
+  return this.report().spansByUUID[carrier['x-mock-span-uuid']];
+};
+
+/* eslint-disable no-restricted-syntax */
+const printReport = (report) => {
+  const reportData = ['Spans:'];
+  for (const span of report.spans) {
+    const tags = span.tags();
+    const tagKeys = Object.keys(tags);
+
+    reportData.push(`    ${span.operationName()} - ${span.durationMs()}ms`);
+    for (const key of tagKeys) {
+      const value = tags[key];
+      reportData.push(`        tag '${key}':'${value}'`);
+    }
+  }
+  return reportData.join('\n');
+};
+/* eslint-enable no-restricted-syntax */
 
 describe('AMQPTransport', function AMQPTransportTestSuite() {
   // require module
@@ -18,7 +44,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
   const configuration = {
     exchange: 'test-exchange',
-    debug: true,
     connection: {
       host: process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost',
       port: process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672,
@@ -72,8 +97,9 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   it('is able to be initialized', () => {
     const amqp = new AMQPTransport(configuration);
     assert(amqp instanceof AMQPTransport);
-    assert(Object.prototype.hasOwnProperty.call(amqp, '_config'));
-    assert(Object.prototype.hasOwnProperty.call(amqp, '_replyQueue'));
+    assert(amqp.config, 'config defined');
+    assert(amqp.replyStorage, 'reply storage initialized');
+    assert(amqp.cache, 'cache storage initialized');
   });
 
   it('fails on invalid configuration', () => {
@@ -87,7 +113,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
     }
 
-    assert.throws(createTransport, Errors.ValidationError);
+    assert.throws(createTransport, 'ValidationError');
   });
 
   it('is able to connect to rabbitmq', () => {
@@ -115,7 +141,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
   it('is able to consume routes', () => {
     const opts = {
-      debug: true,
       cache: 100,
       exchange: configuration.exchange,
       queue: 'test-queue',
@@ -232,7 +257,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       const promises = [
         publish(),
         Promise.delay(300).then(publish),
-        Promise.delay(3000).then(publish),
+        Promise.delay(5000).then(publish),
       ];
 
       return Promise.all(promises).spread((initial, cached, nonCached) => {
@@ -251,7 +276,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     let acksCalled = 0;
 
     const conf = {
-      debug: true,
       exchange: configuration.exchange,
       connection: configuration.connection,
       queue: 'multi',
@@ -324,7 +348,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
   describe('priority queue', function test() {
     const conf = {
-      debug: true,
       exchange: configuration.exchange,
       connection: configuration.connection,
       queue: 'priority',
@@ -349,7 +372,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         },
       })
       .then(({ queue }) => (
-        this.priority.bindExchange(queue, ['priority'], this.priority._config.exchangeArgs)
+        this.priority.bindExchange(queue, ['priority'], this.priority.config.exchangeArgs)
       ));
     });
 
@@ -391,10 +414,11 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   });
 
   describe('consumed queue', function test() {
+    const tracer = new MockTracer();
+
     before('init transport', () => {
       this.proxy = new Proxy(9010, 5672, 'localhost');
       this.transport = new AMQPTransport({
-        debug: true,
         connection: {
           port: 9010,
           heartbeat: 2000,
@@ -408,6 +432,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           autoDelete: true,
           exclusive: true,
         },
+        tracer,
       });
 
       return this.transport.connect();
@@ -429,7 +454,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       const publish = () => transport.publishAndWait('/', { foo: 'bar' }, { confirm: true });
 
       return transport
-        .createConsumedQueue(router, '/')
+        .createConsumedQueue(router, ['/'])
         .tap(() => Promise.all([
           publish(),
           Promise.delay(250).then(publish),
@@ -437,7 +462,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           Promise.delay(300).then(() => this.proxy.interrupt(3000)),
         ]))
         .spread((consumer, queue, establishConsumer) => Promise.join(
-          Promise.fromCallback(next => transport.stopConsumedQueue(consumer, establishConsumer, next)),
+          transport.stopConsumedQueue(consumer, establishConsumer),
           Promise.fromCallback(next => queue.delete(next))
         ));
     });
@@ -478,6 +503,16 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
             this.proxy.interrupt(20);
           }, 10);
         });
+    });
+
+    afterEach('tracer report', () => {
+      const report = tracer.report();
+      assert.equal(report.unfinishedSpans.length, 0);
+
+      // print report for visuals
+      console.log(printReport(report));
+
+      tracer.clear();
     });
 
     after('close transport', () => {

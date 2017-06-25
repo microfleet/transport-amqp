@@ -2,7 +2,7 @@
   "name": "@microfleet/transport-amqp",
   "description": "microservice utils based on amqp transport layer",
   "version": "9.0.1",
-  "main": "./lib/index.js",
+  "main": "./lib/amqp.js",
   "scripts": {
     "compile": "babel -d ./lib ./src",
     "prepublish": "npm run compile",
@@ -42,41 +42,39 @@
     "cz-conventional-changelog": "^2.0.0",
     "eslint": "^3.19.0",
     "eslint-config-makeomatic": "^1.0.1",
-    "eslint-plugin-import": "^2.3.0",
-    "eslint-plugin-mocha": "^4.10.1",
+    "eslint-plugin-import": "^2.5.0",
+    "eslint-plugin-mocha": "^4.11.0",
     "eslint-plugin-promise": "^3.5.0",
+    "jaeger-client": "^3.5.3",
     "microtime": "^2.1.5",
     "mocha": "^3.4.2",
-    "ms-validation": "^5.0.1",
     "nyc": "^11.0.2",
     "semantic-release": "^6.3.2",
-    "sinon": "^2.3.4",
+    "sinon": "^2.3.5",
     "stdout-stream": "^1.4.0"
   },
   "peerDependencies": {
-    "bunyan": "~1.x.x",
     "common-errors": "~1.x.x",
-    "ms-validation": "~4.x.x || ~5.x.x",
     "stdout-stream": "~1.x.x"
   },
   "dependencies": {
-    "@microfleet/amqp-coffee": "^1.0.0",
+    "@microfleet/amqp-coffee": "^1.0.1",
     "bluebird": "^3.5.0",
-    "bunyan-noop": "^2.0.0",
     "common-errors": "^1.0.2",
     "debug": "^2.6.8",
     "eventemitter3": "^2.0.3",
     "hashlru": "^2.2.0",
     "is": "^3.2.1",
+    "joi": "^10.6.0",
     "json-stringify-safe": "^5.0.1",
     "lodash": "^4.17.2",
     "object-hash": "^1.1.8",
+    "opentracing": "^0.14.1",
     "uuid": "^3.1.0"
   },
   "files": [
     "lib/",
     "src/",
-    "schema.json",
     "yarn.lock"
   ],
   "release": {
