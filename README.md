@@ -138,7 +138,7 @@ AMQPTransport.connect(opts).then((amqp) => {
   //   * confirm - waits for commit from AMQP server before resolving
   //   * immediate - waits for the message to be delivered, if it can't be - rejects
   //   * other options - read more in the schema.js file linked earlier
-  amqp.publish(routingKey, message, publishOptions)
+  amqp.publish(routingKey, message, publishOptions, [parentSpan])
     .then(() => {
       // sent
     })
@@ -149,7 +149,7 @@ AMQPTransport.connect(opts).then((amqp) => {
   // same as publish, but sets correlation-id and reply-to properties
   // on the message, allowing consumer to response
   // resolves with
-  amqp.publishAndWait(routingKey, message, publishOptions)
+  amqp.publishAndWait(routingKey, message, publishOptions, [parentSpan])
     .then((response) => {
       // do whatever you want
     })
@@ -160,7 +160,7 @@ AMQPTransport.connect(opts).then((amqp) => {
   // Other option is to work not with the routing keys, but with queues directly
   // for that there are 2 similar methods
   // apart from `routingKey` and `queueName` - everything else works the same way
-  amqp.send(queueName, message, publishOptions)
-  amqp.sendAndWait(queueName, message, publishOptions)
+  amqp.send(queueName, message, publishOptions, [parentSpan])
+  amqp.sendAndWait(queueName, message, publishOptions, [parentSpan])
 });
 ```
