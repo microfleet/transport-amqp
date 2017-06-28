@@ -64,7 +64,17 @@ const wrapPromise = (span, promise) => (
  * @returns {Function}
  */
 const initRoutingFn = (messageHandler, transport) => {
-  return function router(message, properties, actions) {
+  /**
+   * Initiates consumer message handler.
+   * @param  {Mixed} message - Data passed from the publisher.
+   * @param  {Object} properties - AMQP Message properties.
+   * @param  {Object} raw - Original AMQP message.
+   * @param  {Function} [raw.ack] - Acknowledge if nack is `true`.
+   * @param  {Function} [raw.reject] - Reject if nack is `true`.
+   * @param  {Function} [raw.retry] - Retry msg if nack is `true`.
+   * @returns {Void}
+   */
+  return function router(message, properties, raw) {
     // add instrumentation
     const appId = transport._parseInput(properties.appId);
 
@@ -84,7 +94,11 @@ const initRoutingFn = (messageHandler, transport) => {
       ? (error, data) => transport.noop(error, data, span)
       : (error, data) => transport.reply(properties, { error, data }, span);
 
-    return messageHandler(message, properties, actions, next);
+    // define span in the original message
+    // so that userland has access to it
+    raw.span = span;
+
+    return messageHandler(message, properties, raw, next);
   };
 };
 
@@ -902,7 +916,7 @@ class AMQPTransport extends EventEmitter {
       const properties = originalMessage.properties;
 
       // pass to the consumer message router
-      // data - properties - actions
+      // data - properties - originalMessage
       return router.call(
         // call context
         amqpTransport,
@@ -910,7 +924,8 @@ class AMQPTransport extends EventEmitter {
         parseInput.call(amqpTransport, originalMessage.raw), // message data
         // message properties
         extend(properties, pick(originalMessage, AMQPTransport.extendMessageProperties)),
-        // original message
+        // raw<{ ack: ?Function, reject: ?Function, retry: ?Function }>
+        // and everything else from amqp-coffee
         originalMessage
       );
     };
@@ -920,9 +935,9 @@ class AMQPTransport extends EventEmitter {
    * Distributes messages from a private queue
    * @param  {Mixed}  message
    * @param  {Object} properties
-   * @param  {Object} actions
+   * @param  {Object} raw
    */
-  _privateMessageRouter(message, properties) {
+  _privateMessageRouter(message, properties/* , raw */) { // if private queue has nack set - we must ack msg
     const { correlationId, replyTo, headers } = properties;
     const { 'x-death': xDeath } = headers;
 
