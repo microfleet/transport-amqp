@@ -47,14 +47,15 @@ const { Tags, FORMAT_TEXT_MAP } = opentracing;
 
 // wrap promise
 const wrapPromise = (span, promise) => (
-  promise.catch((error) => {
-    span.setTag(Tags.ERROR, true);
-    span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
-    throw error;
-  })
-  .finally(() => {
-    span.finish();
-  })
+  promise
+    .catch((error) => {
+      span.setTag(Tags.ERROR, true);
+      span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
+      throw error;
+    })
+    .finally(() => {
+      span.finish();
+    })
 );
 
 /**
@@ -106,7 +107,6 @@ const initRoutingFn = (messageHandler, transport) => {
  * @class AMQPTransport
  */
 class AMQPTransport extends EventEmitter {
-
   static extendMessageProperties = [
     'deliveryTag',
     'redelivered',
@@ -200,12 +200,13 @@ class AMQPTransport extends EventEmitter {
       }
     }
 
-    return Promise.fromNode((next) => {
-      this._amqp = new AMQP(config.connection, next);
-      this._amqp.on('ready', this._onConnect);
-      this._amqp.on('close', this._onClose);
-    })
-    .return(this);
+    return Promise
+      .fromNode((next) => {
+        this._amqp = new AMQP(config.connection, next);
+        this._amqp.on('ready', this._onConnect);
+        this._amqp.on('close', this._onClose);
+      })
+      .return(this);
   }
 
   /**
@@ -238,8 +239,7 @@ class AMQPTransport extends EventEmitter {
             amqp.once('close', resolve);
             amqp.once('error', reject);
             amqp.close();
-          })
-          .finally(() => {
+          }).finally(() => {
             this._amqp = null;
             amqp.removeAllListeners();
           });
@@ -417,6 +417,13 @@ class AMQPTransport extends EventEmitter {
     const baseOpts = { router, neck: config.neck, queue: config.queue || '' };
     const queueOptions = merge(baseOpts, config.defaultQueueOpts, this._extraQueueOptions, options);
 
+    if (config.bindPersistantQueueToHeadersExchange === true) {
+      listen.forEach((route) => {
+        assert.ok(/^[^*#]+$/, route,
+          'with bindPersistantQueueToHeadersExchange:true routes must not have patterns');
+      });
+    }
+
     this.log.debug('creating consumed queue %s with routes', queueOptions.queue, listen);
 
     // bind to an opened exchange once connected
@@ -433,7 +440,7 @@ class AMQPTransport extends EventEmitter {
       // retrieved some of the routes
       transport.log.debug('retrieved routes', routes, listen);
 
-      const rebindRoutes = [...listen, ...routes];
+      const rebindRoutes = uniq([...listen, ...routes]);
       queue._routes = rebindRoutes;
 
       const work = [
@@ -461,84 +468,84 @@ class AMQPTransport extends EventEmitter {
       }
 
       return promise
-      .call('createQueue', { ...queueOptions })
-      .tap(createExchange)
-      .catch((e) => {
-        throw new ConnectionError('failed to init queue or exchange', e);
-      })
-      .then(({ consumer, queue }) => {
-        // save ref to WeakMap
-        transport._consumers.set(establishConsumer, consumer);
-        transport._queues.set(establishConsumer, queue);
+        .call('createQueue', { ...queueOptions })
+        .tap(createExchange)
+        .catch((e) => {
+          throw new ConnectionError('failed to init queue or exchange', e);
+        })
+        .then(({ consumer, queue }) => {
+          // save ref to WeakMap
+          transport._consumers.set(establishConsumer, consumer);
+          transport._queues.set(establishConsumer, queue);
 
-        // invoke to rebind
-        function rebind(err, res) {
-          const msg = err && err.replyText;
+          // invoke to rebind
+          function rebind(err, res) {
+            const msg = err && err.replyText;
 
-          // cleanup a bit
-          transport.log.warn('re-establishing connection after', msg || err, res || '');
+            // cleanup a bit
+            transport.log.warn('re-establishing connection after', msg || err, res || '');
 
-          // if we can't connect - try again in 500 ms in .catch block
-          return Promise
-            .bind(transport, consumer)
-            .then(closeConsumer)
-            .delay(transport.recovery.get('consumed', 1))
-            .finally(establishConsumer);
-        }
-
-        // remove previous listeners if we re-use the channel
-        // for any reason
-        consumer.removeAllListeners('error');
-        consumer.removeAllListeners('cancel');
-
-        // access-refused  403
-        //  The client attempted to work with a server entity
-        //  to which it has no access due to security settings.
-        // not-found  404
-        //  The client attempted to work with a server entity that does not exist.
-        // resource-locked  405
-        //  The client attempted to work with a server entity
-        //  to which it has no access because another client is working with it.
-        // precondition-failed  406
-        //  The client requested a method that was not allowed
-        //  because some precondition failed.
-        consumer.on('error', (err, res) => {
-          const error = err.error || err;
-
-          // https://www.rabbitmq.com/amqp-0-9-1-reference.html -
-          switch (error.replyCode) {
-            // ignore errors
-            case 311:
-            case 313:
-              transport.log.error('error working with a channel:', err, res);
-              return null;
-
-            case 404:
-              if (error.replyText && error.replyText.indexOf(queue.queueOptions.queue) !== -1) {
-                rebind(error, res);
-              }
-              return null;
-
-            default:
-              return rebind(error, res);
+            // if we can't connect - try again in 500 ms in .catch block
+            return Promise
+              .bind(transport, consumer)
+              .then(closeConsumer)
+              .delay(transport.recovery.get('consumed', 1))
+              .finally(establishConsumer);
           }
+
+          // remove previous listeners if we re-use the channel
+          // for any reason
+          consumer.removeAllListeners('error');
+          consumer.removeAllListeners('cancel');
+
+          // access-refused  403
+          //  The client attempted to work with a server entity
+          //  to which it has no access due to security settings.
+          // not-found  404
+          //  The client attempted to work with a server entity that does not exist.
+          // resource-locked  405
+          //  The client attempted to work with a server entity
+          //  to which it has no access because another client is working with it.
+          // precondition-failed  406
+          //  The client requested a method that was not allowed
+          //  because some precondition failed.
+          consumer.on('error', (err, res) => {
+            const error = err.error || err;
+
+            // https://www.rabbitmq.com/amqp-0-9-1-reference.html -
+            switch (error.replyCode) {
+              // ignore errors
+              case 311:
+              case 313:
+                transport.log.error('error working with a channel:', err, res);
+                return null;
+
+              case 404:
+                if (error.replyText && error.replyText.indexOf(queue.queueOptions.queue) !== -1) {
+                  rebind(error, res);
+                }
+                return null;
+
+              default:
+                return rebind(error, res);
+            }
+          });
+
+          consumer.on('cancel', rebind);
+
+          // emit event that we consumer & queue is ready
+          transport.log.info('[consumed-queue-reconnected] %s', queue.queueOptions.queue);
+          transport.emit('consumed-queue-reconnected', consumer, queue);
+
+          return [consumer, queue, establishConsumer];
+        })
+        .catch(ConnectionError, (e) => {
+          transport.log.warn('[consumed-queue-down]', e);
+          return Promise
+            .resolve(attempt + 1)
+            .delay(this.recovery.get('consumed', attempt + 1))
+            .then(establishConsumer);
         });
-
-        consumer.on('cancel', rebind);
-
-        // emit event that we consumer & queue is ready
-        transport.log.info('[consumed-queue-reconnected] %s', queue.queueOptions.queue);
-        transport.emit('consumed-queue-reconnected', consumer, queue);
-
-        return [consumer, queue, establishConsumer];
-      })
-      .catch(ConnectionError, (e) => {
-        transport.log.warn('[consumed-queue-down]', e);
-        return Promise
-          .resolve(attempt + 1)
-          .delay(this.recovery.get('consumed', attempt + 1))
-          .then(establishConsumer);
-      });
     }
 
     // make sure we recreate queue and establish consumer on reconnect
@@ -581,28 +588,28 @@ class AMQPTransport extends EventEmitter {
     this.log.debug('bind routes->exchange', routes, exchange);
 
     return this._amqp
-    .exchangeAsync(params)
-    .call('declareAsync')
-    .catch({ replyCode: 406 }, (err) => {
-      const format = '[406] error declaring exchange with params %s: %s';
-      this.log.warn(format, JSON.stringify(params), err.replyText);
-    })
-    .return(routes)
-    .map(route => (
-      queue.bindAsync(exchange, route).tap(() => {
-        const queueName = queue.queueOptions.queue;
-        if (queue._routes) {
-          // reconnect might push an extra route
-          if (queue._routes.indexOf(route) === -1) {
-            queue._routes.push(route);
+      .exchangeAsync(params)
+      .call('declareAsync')
+      .catch({ replyCode: 406 }, (err) => {
+        const format = '[406] error declaring exchange with params %s: %s';
+        this.log.warn(format, JSON.stringify(params), err.replyText);
+      })
+      .return(routes)
+      .map(route => (
+        queue.bindAsync(exchange, route).tap(() => {
+          const queueName = queue.queueOptions.queue;
+          if (queue._routes) {
+            // reconnect might push an extra route
+            if (queue._routes.indexOf(route) === -1) {
+              queue._routes.push(route);
+            }
+
+            this.log.trace('[queue routes]', queue._routes);
           }
 
-          this.log.trace('[queue routes]', queue._routes);
-        }
-
-        this.log.debug('queue "%s" bound to exchange "%s" on route "%s"', queueName, exchange, route);
-      })
-    ));
+          this.log.debug('queue "%s" bound to exchange "%s" on route "%s"', queueName, exchange, route);
+        })
+      ));
   }
 
   /**
@@ -887,19 +894,20 @@ class AMQPTransport extends EventEmitter {
 
       // this is to ensure that queue is not overflown and work will not
       // be completed later on
-      publishMessage.call(this, routing, message, {
-        ...options,
-        replyTo,
-        correlationId,
-        expiration: Math.ceil(timeout * 0.9).toString(),
-      }, span)
-      .tap(() => {
-        this.log.trace('message published in %s', latency(time));
-      })
-      .catch((err) => {
-        this.log.error('error sending message', err);
-        replyStorage.reject(correlationId, err);
-      });
+      publishMessage
+        .call(this, routing, message, {
+          ...options,
+          replyTo,
+          correlationId,
+          expiration: Math.ceil(timeout * 0.9).toString(),
+        }, span)
+        .tap(() => {
+          this.log.trace('message published in %s', latency(time));
+        })
+        .catch((err) => {
+          this.log.error('error sending message', err);
+          replyStorage.reject(correlationId, err);
+        });
     });
   }
 

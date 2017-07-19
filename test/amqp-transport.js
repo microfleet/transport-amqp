@@ -219,25 +219,27 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     });
 
     it('create queue, but do not consume', () => (
-      this.dlx.createConsumedQueue(() => {}, ['hub'], {
-        queue: 'dlx-consumer',
-      })
-      .spread(consumer => consumer.close())
+      this.dlx
+        .createConsumedQueue(() => {}, ['hub'], {
+          queue: 'dlx-consumer',
+        })
+        .spread(consumer => consumer.close())
     ));
 
     it('publish message and receive DLX response', () => (
       // it will be published to the `dlx-consumer` queue
       // and after 2250 ms moved to '' with routing key based on the
       // headers values
-      this.dlx.publishAndWait('hub', { wont: 'be-consumed-queue' }, {
-        // set smaller timeout than 10s so we don't wait
-        // resulting x-message-ttl is 80% (?) of timeout
-        timeout: 2500,
-      })
-      .throw(new Error('did not reject'))
-      .catch(AmqpDLXError, (e) => {
-        assert.equal(e.message, 'Expired from queue "dlx-consumer" with routing keys ["hub"] after 2250ms 1 time(s)');
-      })
+      this.dlx
+        .publishAndWait('hub', { wont: 'be-consumed-queue' }, {
+          // set smaller timeout than 10s so we don't wait
+          // resulting x-message-ttl is 80% (?) of timeout
+          timeout: 2500,
+        })
+        .throw(new Error('did not reject'))
+        .catch(AmqpDLXError, (e) => {
+          assert.equal(e.message, 'Expired from queue "dlx-consumer" with routing keys ["hub"] after 2250ms 1 time(s)');
+        })
     ));
 
     after('close amqp', () => (
@@ -323,19 +325,20 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
       const pub = [...q1, ...q2, ...q3];
 
-      return Promise.map(pub, message => (
-        this.publisher.publishAndWait(message.route, message.message)
-      ))
-      .then((responses) => {
-        assert.equal(acksCalled, q1.length);
+      return Promise
+        .map(pub, message => (
+          this.publisher.publishAndWait(message.route, message.message)
+        ))
+        .then((responses) => {
+          assert.equal(acksCalled, q1.length);
 
-        // ensure all responses match
-        pub.forEach((p, idx) => {
-          assert.equal(responses[idx], p.message);
+          // ensure all responses match
+          pub.forEach((p, idx) => {
+            assert.equal(responses[idx], p.message);
+          });
+
+          assert.equal(this.spy.callCount, pub.length);
         });
-
-        assert.equal(this.spy.callCount, pub.length);
-      });
     });
 
     after('close multi-transport', () => (
@@ -365,15 +368,16 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     });
 
     it('create priority queue', () => {
-      return this.priority.createQueue({
-        queue: 'priority',
-        arguments: {
-          'x-max-priority': 5,
-        },
-      })
-      .then(({ queue }) => (
-        this.priority.bindExchange(queue, ['priority'], this.priority.config.exchangeArgs)
-      ));
+      return this.priority
+        .createQueue({
+          queue: 'priority',
+          arguments: {
+            'x-max-priority': 5,
+          },
+        })
+        .then(({ queue }) => (
+          this.priority.bindExchange(queue, ['priority'], this.priority.config.exchangeArgs)
+        ));
     });
 
     it('prioritize messages', () => {
@@ -411,6 +415,57 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         this.publisher.close()
       )
     ));
+  });
+
+  describe('double bind', function test() {
+    before('init transport', () => {
+      this.spy = sinon.spy(function responder(message, properties, actions, next) {
+        next(null, { message, properties });
+      });
+
+      const opts = {
+        connection: {
+          port: 5672,
+          heartbeat: 2000,
+        },
+        exchange: 'test-topic',
+        exchangeArgs: {
+          autoDelete: false,
+          type: 'topic',
+        },
+        defaultQueueOpts: {
+          autoDelete: true,
+          exclusive: true,
+        },
+        bindPersistantQueueToHeadersExchange: true,
+        listen: ['direct-binding-key', 'test.mandatory'],
+      };
+
+      return AMQPTransport
+        .connect(opts, this.spy)
+        .then((transport) => {
+          this.transport = transport;
+        });
+    });
+
+    it('delivers messages using headers', () => {
+      return this.transport
+        .publish('crap-wont-work', 'hi', {
+          confirm: true,
+          exchange: 'amq.headers',
+          headers: {
+            'x-routing-key': 'direct-binding-key',
+          },
+        })
+        .delay(100)
+        .then(() => {
+          assert.ok(this.spy.calledOnce);
+        });
+    });
+
+    after('close transport', () => {
+      this.transport.close();
+    });
   });
 
   describe('consumed queue', function test() {
