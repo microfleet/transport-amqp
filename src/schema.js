@@ -128,8 +128,35 @@ module.exports = Joi.object({
         .default('topic', 'type of the exchange'),
 
       durable: Joi.boolean()
-        .default(true, 'whether to erase exchange on rabbitmq restart'),
+        .default(true, 'whether to preserve exchange on rabbitmq restart'),
     })
+    .default(),
+
+  bindPersistantQueueToHeadersExchange: Joi.boolean()
+    .default(false, 'whether to bind queues created by .createConsumedQueue to headersExchange'),
+
+  headersExchange: Joi
+    .object({
+      exchange: Joi.string()
+        .default('amq.headers', 'default headers exchange to use'),
+
+      autoDelete: Joi.boolean()
+        .default(false, 'do not autoDelete exchanges'),
+
+      noWait: Joi.boolean()
+        .default(false, 'whether not to wait for declare response'),
+
+      internal: Joi.boolean()
+        .default(false, 'whether to set internal bit'),
+
+      type: Joi.string()
+        .only('headers')
+        .default('headers', 'type of the exchange'),
+
+      durable: Joi.boolean()
+        .default(true, 'whether to preserve exchange on rabbitmq restart'),
+    })
+    .description('this exchange is used to support delayed retry with QoS exchanges')
     .default(),
 
   queue: Joi.string()

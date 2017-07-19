@@ -435,7 +435,17 @@ class AMQPTransport extends EventEmitter {
 
       const rebindRoutes = [...listen, ...routes];
       queue._routes = rebindRoutes;
-      return transport.bindExchange(queue, rebindRoutes, config.exchangeArgs);
+
+      const work = [
+        transport.bindExchange(queue, rebindRoutes, config.exchangeArgs),
+      ];
+
+      // bind same queue to headers exchange
+      if (config.bindPersistantQueueToHeadersExchange === true) {
+        work.push(transport.bindExchange(queue, rebindRoutes, config.headersExchange));
+      }
+
+      return Promise.all(work);
     }
 
     // pipeline for establishing consumer
@@ -460,7 +470,6 @@ class AMQPTransport extends EventEmitter {
         // save ref to WeakMap
         transport._consumers.set(establishConsumer, consumer);
         transport._queues.set(establishConsumer, queue);
-        queue._routes = [];
 
         // invoke to rebind
         function rebind(err, res) {
