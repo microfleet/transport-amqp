@@ -45,65 +45,67 @@ module.exports = Joi.object({
 
   tracer: Joi.object(),
 
-  connection: Joi.object({
-    host: Joi.alternatives().try(
-      Joi.string(),
-      Joi.array().min(1).items(Joi.string()),
-      Joi.array().min(1).items(Joi.object({
-        host: Joi.string().required(),
-        port: Joi.number().required(),
-      }))
-    )
-    .default('localhost', 'rabbitmq host'),
+  connection: Joi
+    .object({
+      host: Joi.alternatives()
+        .try(
+          Joi.string(),
+          Joi.array().min(1).items(Joi.string()),
+          Joi.array().min(1).items(Joi.object({
+            host: Joi.string().required(),
+            port: Joi.number().required(),
+          }))
+        )
+        .default('localhost', 'rabbitmq host'),
 
-    port: Joi.number()
-      .default(5672, 'rabbitmq port'),
+      port: Joi.number()
+        .default(5672, 'rabbitmq port'),
 
-    heartbeat: Joi.number()
-      .default(10000, 'heartbeat check'),
+      heartbeat: Joi.number()
+        .default(10000, 'heartbeat check'),
 
-    login: Joi.string()
-      .default('guest', 'rabbitmq login'),
+      login: Joi.string()
+        .default('guest', 'rabbitmq login'),
 
-    password: Joi.string()
-      .default('guest', 'rabbitmq password'),
+      password: Joi.string()
+        .default('guest', 'rabbitmq password'),
 
-    vhost: Joi.string()
-      .default('/', 'rabbitmq virtual host'),
+      vhost: Joi.string()
+        .default('/', 'rabbitmq virtual host'),
 
-    temporaryChannelTimeout: Joi.number()
-      .default(6000, 'temporary channel close time with no activity'),
+      temporaryChannelTimeout: Joi.number()
+        .default(6000, 'temporary channel close time with no activity'),
 
-    reconnect: Joi.boolean()
-      .default(true, 'enable auto-reconnect'),
+      reconnect: Joi.boolean()
+        .default(true, 'enable auto-reconnect'),
 
-    reconnectDelayTime: Joi.number()
-      .default(500, 'reconnect delay time'),
+      reconnectDelayTime: Joi.number()
+        .default(500, 'reconnect delay time'),
 
-    hostRandom: Joi.boolean()
-      .default(false, 'select host to connect to randomly'),
+      hostRandom: Joi.boolean()
+        .default(false, 'select host to connect to randomly'),
 
-    ssl: Joi.boolean()
-      .default(false, 'whether to use SSL'),
+      ssl: Joi.boolean()
+        .default(false, 'whether to use SSL'),
 
-    sslOptions: Joi.object()
-      .description('ssl options'),
+      sslOptions: Joi.object()
+        .description('ssl options'),
 
-    noDelay: Joi.boolean()
-      .default(true, 'disable Nagle\'s algorithm'),
+      noDelay: Joi.boolean()
+        .default(true, 'disable Nagle\'s algorithm'),
 
-    clientProperties: Joi.object({
-      capabilities: Joi.object({
-        consumer_cancel_notify: Joi.boolean()
-          .default(true, 'whether to react to cancel events'),
-      })
-      .default(),
+      clientProperties: Joi
+        .object({
+          capabilities: Joi.object({
+            consumer_cancel_notify: Joi.boolean()
+              .default(true, 'whether to react to cancel events'),
+          }).default(),
+        })
+        .description('options for advertising client properties')
+        .default(),
     })
-    .description('options for advertising client properties')
+    .description('options for setting up connection to RabbitMQ')
     .default(),
-  })
-  .description('options for setting up connection to RabbitMQ')
-  .default(),
 
   recovery: recoverySchema
     .description('recovery settings')
@@ -128,8 +130,35 @@ module.exports = Joi.object({
         .default('topic', 'type of the exchange'),
 
       durable: Joi.boolean()
-        .default(true, 'whether to erase exchange on rabbitmq restart'),
+        .default(true, 'whether to preserve exchange on rabbitmq restart'),
     })
+    .default(),
+
+  bindPersistantQueueToHeadersExchange: Joi.boolean()
+    .default(false, 'whether to bind queues created by .createConsumedQueue to headersExchange'),
+
+  headersExchange: Joi
+    .object({
+      exchange: Joi.string()
+        .default('amq.headers', 'default headers exchange to use'),
+
+      autoDelete: Joi.boolean()
+        .default(false, 'do not autoDelete exchanges'),
+
+      noWait: Joi.boolean()
+        .default(false, 'whether not to wait for declare response'),
+
+      internal: Joi.boolean()
+        .default(false, 'whether to set internal bit'),
+
+      type: Joi.string()
+        .only('headers')
+        .default('headers', 'type of the exchange'),
+
+      durable: Joi.boolean()
+        .default(true, 'whether to preserve exchange on rabbitmq restart'),
+    })
+    .description('this exchange is used to support delayed retry with QoS exchanges')
     .default(),
 
   queue: Joi.string()
@@ -148,14 +177,15 @@ module.exports = Joi.object({
       durable: Joi.boolean()
         .default(true, 'survive restarts & use disk storage'),
 
-      arguments: Joi.object({
-        'x-expires': Joi.number().min(0)
-          .description('delete queue after it\'s been unused for X seconds'),
+      arguments: Joi
+        .object({
+          'x-expires': Joi.number().min(0)
+            .description('delete queue after it\'s been unused for X seconds'),
 
-        'x-max-priority': Joi.number().min(2).max(255)
-          .description('setup priority queues where messages will be delivery based on priority level'),
-      })
-      .default(),
+          'x-max-priority': Joi.number().min(2).max(255)
+            .description('setup priority queues where messages will be delivery based on priority level'),
+        })
+        .default(),
     })
     .description('default options for creating consumer queues')
     .default(),
@@ -173,14 +203,15 @@ module.exports = Joi.object({
       durable: Joi.boolean()
         .default(true, 'survive restarts & use disk storage'),
 
-      arguments: Joi.object({
-        'x-expires': Joi.number().min(0)
-          .default(1800000, 'delete the private queue after it\'s been unused for 3 minutes'),
+      arguments: Joi
+        .object({
+          'x-expires': Joi.number().min(0)
+            .default(1800000, 'delete the private queue after it\'s been unused for 3 minutes'),
 
-        'x-max-priority': Joi.number().min(2).max(255)
-          .description('setup priority queues where messages will be delivery based on priority level'),
-      })
-      .default(),
+          'x-max-priority': Joi.number().min(2).max(255)
+            .description('setup priority queues where messages will be delivery based on priority level'),
+        })
+        .default(),
     })
     .description('default options for private RPC queues')
     .default(),

@@ -20,8 +20,7 @@ class Backoff {
 
       factor: Joi.number().min(0)
         .default(0.2, 'exponential increase factor'),
-    })
-    .default(),
+    }).default(),
 
     consumed: Joi.object({
       min: Joi.number().min(0)
@@ -32,8 +31,7 @@ class Backoff {
 
       factor: Joi.number().min(0)
         .default(0.2, 'exponential increase factor'),
-    })
-    .default(),
+    }).default(),
   });
 
   constructor(settings) {
