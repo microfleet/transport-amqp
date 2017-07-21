@@ -19,7 +19,7 @@ class Backoff {
         .default(1000, 'max delay'),
 
       factor: Joi.number().min(0)
-        .default(0.2, 'exponential increase factor'),
+        .default(1.2, 'exponential increase factor'),
     }).default(),
 
     consumed: Joi.object({
@@ -30,7 +30,7 @@ class Backoff {
         .default(5000, 'max delay'),
 
       factor: Joi.number().min(0)
-        .default(0.2, 'exponential increase factor'),
+        .default(1.2, 'exponential increase factor'),
     }).default(),
   });
 
