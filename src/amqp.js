@@ -164,7 +164,8 @@ class AMQPTransport extends EventEmitter {
 
     // Cached serialized value
     this._appIDString = stringify(this._appID);
-    this._defaultOpts = config.defaultOpts;
+    this._defaultOpts = { ...config.defaultOpts };
+    this._defaultOpts.appId = this._appIDString;
     this._extraQueueOptions = {};
 
     // DLX config
@@ -664,7 +665,7 @@ class AMQPTransport extends EventEmitter {
     return wrapPromise(span, this._amqp.publishAsync(
       exchange,
       route,
-      stringify(message, jsonSerializer),
+      options.skipSerialize === true ? message : stringify(message, jsonSerializer),
       this._publishOptions(options)
     ));
   }
@@ -695,7 +696,7 @@ class AMQPTransport extends EventEmitter {
     return wrapPromise(span, this._amqp.publishAsync(
       exchange,
       queue,
-      stringify(message, jsonSerializer),
+      options.skipSerialize === true ? message : stringify(message, jsonSerializer),
       this._publishOptions(options)
     ));
   }
@@ -762,11 +763,10 @@ class AMQPTransport extends EventEmitter {
    * @return {Object}
    */
   _publishOptions(options = {}) {
-    const opts = {
-      ...options,
-      appId: this._appIDString,
-    };
+    // remove unused opts
+    const { skipSerialize, ...opts } = options;
 
+    // set default opts
     defaults(opts, this._defaultOpts);
 
     // append request timeout in headers
