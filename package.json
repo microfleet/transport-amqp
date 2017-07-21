@@ -5,12 +5,11 @@
   "main": "./lib/amqp.js",
   "scripts": {
     "compile": "babel -d ./lib ./src",
-    "prepublish": "npm run compile",
     "lint": "eslint ./src",
     "test": "npm run lint && npm run test:integration",
     "test:integration": "cross-env NODE_ENV=test nyc ./node_modules/.bin/_mocha",
     "bench": "npm run compile && node ./bench/roundtrip.js",
-    "semantic-release": "semantic-release pre && npm publish --access=public && semantic-release post"
+    "semantic-release": "semantic-release pre && npm run compile && npm publish --access=public && semantic-release post"
   },
   "engines": {
     "node": ">= 6.2.0",
