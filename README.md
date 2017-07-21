@@ -2,7 +2,7 @@
 
 Contains RabbitMQ-based transport for establishing a net of loosely coupled microservices with a simple RPC-style calling interface using Node.js
 
-[![npm version](https://badge.fury.io/js/%40microfleet%2Fcore.svg)](https://badge.fury.io/js/%40microfleet%2Fcore)
+[![npm version](https://badge.fury.io/js/%40microfleet%2Ftransport-amqp.svg)](https://badge.fury.io/js/%40microfleet%2Ftransport-amqp)
 [![Build Status](https://semaphoreci.com/api/v1/makeomatic/transport-amqp/branches/master/shields_badge.svg)](https://semaphoreci.com/makeomatic/transport-amqp)
 [![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg?style=flat-square)](https://github.com/semantic-release/semantic-release)
 
