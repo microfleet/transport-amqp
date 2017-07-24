@@ -13,7 +13,7 @@ exports.prepareLogger = (config) => {
   // bunyan logger
   if (config.debug && !config.log) {
     try {
-      return require('./bunyan-logger');
+      return require('./pino-logger')(config.name);
     } catch (e) {
       return require('./noop-logger');
     }
