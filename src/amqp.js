@@ -1010,7 +1010,7 @@ class AMQPTransport extends EventEmitter {
     try {
       return JSON.parse(_data, jsonDeserializer);
     } catch (err) {
-      this.log.warn('Error parsing buffer', err, _data.toString());
+      this.log.warn('Error parsing buffer', err, String(_data));
       return {
         err: new ValidationError('couldn\'t deserialize input', 500, 'message.raw'),
       };

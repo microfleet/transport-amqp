@@ -8,8 +8,10 @@
     "lint": "eslint ./src",
     "test": "npm run lint && npm run test:integration",
     "test:integration": "cross-env NODE_ENV=test nyc ./node_modules/.bin/_mocha",
+    "prepublishOnly": "npm run compile",
     "bench": "npm run compile && node ./bench/roundtrip.js",
-    "semantic-release": "semantic-release pre && npm run compile && npm publish --access=public && semantic-release post"
+    "semantic-release": "semantic-release pre && npm publish && semantic-release post",
+    "commit": "simple-commit-message"
   },
   "engines": {
     "node": ">= 6.2.0",
@@ -26,6 +28,7 @@
   },
   "homepage": "https://github.com/microfleet/transport-amqp#readme",
   "devDependencies": {
+    "@makeomatic/deploy": "^4.1.2",
     "babel-cli": "^6.24.1",
     "babel-eslint": "^7.2.3",
     "babel-plugin-istanbul": "^4.1.4",
@@ -48,7 +51,7 @@
     "mocha": "^3.4.2",
     "nyc": "^11.0.3",
     "semantic-release": "^6.3.2",
-    "sinon": "^2.3.8",
+    "sinon": "^2.4.1",
     "stdout-stream": "^1.4.0"
   },
   "peerDependencies": {
@@ -77,11 +80,20 @@
     "yarn.lock"
   ],
   "release": {
-    "verifyConditions": []
+    "verifyConditions": "@makeomatic/condition-semaphore",
+    "analyzeCommits": "simple-commit-message",
+    "generateNotes": "github-post-release",
+    "getLastRelease": "@makeomatic/last-release-npm",
+    "branch": "master"
   },
   "config": {
-    "commitizen": {
-      "path": "./node_modules/cz-conventional-changelog"
+    "pre-git": {
+      "commit-msg": "simple",
+      "pre-commit": [],
+      "pre-push": [],
+      "post-commit": [],
+      "post-checkout": [],
+      "post-merge": []
     }
   }
 }
