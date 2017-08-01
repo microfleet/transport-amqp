@@ -1,5 +1,5 @@
 function toMiliseconds(hrtime) {
-  return parseFloat((hrtime[0] * 1e3) + (hrtime[1] / 1e6).toFixed(3));
+  return (hrtime[0] * 1e3) + (Math.round(hrtime[1] / 1e3) / 1e3);
 }
 
 module.exports = function latency(time) {
