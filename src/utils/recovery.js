@@ -18,7 +18,7 @@ class Backoff {
       max: Joi.number().min(0)
         .default(1000, 'max delay'),
 
-      factor: Joi.number().min(0)
+      factor: Joi.number().min(1)
         .default(1.2, 'exponential increase factor'),
     }).default(),
 
@@ -29,13 +29,13 @@ class Backoff {
       max: Joi.number().min(0)
         .default(5000, 'max delay'),
 
-      factor: Joi.number().min(0)
+      factor: Joi.number().min(1)
         .default(1.2, 'exponential increase factor'),
     }).default(),
   });
 
   constructor(settings) {
-    this.settings = settings;
+    this.settings = Object.setPrototypeOf({ ...settings }, null);
   }
 
   get(policy, attempt = 0) {
