@@ -452,7 +452,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       return this.transport
         .publish('crap-wont-work', 'hi', {
           confirm: true,
-          exchange: 'amq.headers',
+          exchange: 'amq.match',
           headers: {
             'x-routing-key': 'direct-binding-key',
           },
