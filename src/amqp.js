@@ -66,6 +66,20 @@ const wrapPromise = (span, promise) => (
  */
 const initRoutingFn = (messageHandler, transport) => {
   /**
+   * Response Handler Function. Sends Reply or Noop log.
+   * @param  {AMQPMessage} raw - Raw AMQP Message Structure
+   * @param  {Error} error - Error if it happened.
+   * @param  {Mixed} data - Response data.
+   * @returns {Promise<*>}
+   */
+  function responseHandler(raw, error, data) {
+    const { properties, span } = raw;
+    return !properties.replyTo || !properties.correlationId
+      ? transport.noop(error, data, span)
+      : transport.reply(properties, { error, data }, span);
+  }
+
+  /**
    * Initiates consumer message handler.
    * @param  {Mixed} message - Data passed from the publisher.
    * @param  {Object} properties - AMQP Message properties.
@@ -91,15 +105,11 @@ const initRoutingFn = (messageHandler, transport) => {
       [Tags.PEER_HOSTNAME]: appId.host,
     });
 
-    const next = !properties.replyTo || !properties.correlationId
-      ? (error, data) => transport.noop(error, data, span)
-      : (error, data) => transport.reply(properties, { error, data }, span);
-
     // define span in the original message
     // so that userland has access to it
     raw.span = span;
 
-    return messageHandler(message, properties, raw, next);
+    return messageHandler(message, properties, raw, responseHandler.bind(undefined, raw));
   };
 };
 
