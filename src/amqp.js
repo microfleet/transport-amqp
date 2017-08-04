@@ -971,7 +971,8 @@ class AMQPTransport extends EventEmitter {
         this.log.warn('message was not processed', error);
       }
 
-      if (replyTo) {
+      // otherwise we just run messages in circles
+      if (replyTo && replyTo !== this._replyTo) {
         // if error is undefined - generate this
         if (error === undefined) {
           error = new NotPermittedError(`no recipients found for correlationId "${correlationId}"`);
