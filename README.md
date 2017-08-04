@@ -1,5 +1,7 @@
 # RabbitMQ / AMQP Node.js Transport for Microservices
 
+<img alt="Microfleet AMQP" src="https://raw.githubusercontent.com/microfleet/transport-amqp/master/assets/mf-concept-amqp.png" width="412" height="208" />
+
 Contains RabbitMQ-based transport for establishing a net of loosely coupled microservices with a simple RPC-style calling interface using Node.js
 
 [![npm version](https://badge.fury.io/js/%40microfleet%2Ftransport-amqp.svg)](https://badge.fury.io/js/%40microfleet%2Ftransport-amqp)
