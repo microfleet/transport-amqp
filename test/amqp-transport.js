@@ -31,6 +31,19 @@ const printReport = (report) => {
       reportData.push(`        tag '${key}':'${value}'`);
     }
   }
+
+  if (report.unfinishedSpans.length > 0) reportData.push('Unfinished:');
+  for (const unfinishedSpan of report.unfinishedSpans) {
+    const tags = unfinishedSpan.tags();
+    const tagKeys = Object.keys(tags);
+
+    reportData.push(`    ${unfinishedSpan.operationName()} - ${unfinishedSpan.durationMs()}ms`);
+    for (const key of tagKeys) {
+      const value = tags[key];
+      reportData.push(`        tag '${key}':'${value}'`);
+    }
+  }
+
   return reportData.join('\n');
 };
 /* eslint-enable no-restricted-syntax */
@@ -567,11 +580,10 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     afterEach('tracer report', () => {
       const report = tracer.report();
-      assert.equal(report.unfinishedSpans.length, 0);
 
       // print report for visuals
       console.log(printReport(report));
-
+      assert.equal(report.unfinishedSpans.length, 0);
       tracer.clear();
     });
 

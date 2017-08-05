@@ -41,7 +41,7 @@
     "codecov": "^2.3.0",
     "cross-env": "^5.0.3",
     "cz-conventional-changelog": "^2.0.0",
-    "eslint": "^4.3.0",
+    "eslint": "^4.4.0",
     "eslint-config-makeomatic": "^1.0.1",
     "eslint-plugin-import": "^2.7.0",
     "eslint-plugin-mocha": "^4.11.0",
