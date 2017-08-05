@@ -434,9 +434,10 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           type: 'topic',
         },
         defaultQueueOpts: {
-          autoDelete: true,
-          exclusive: true,
+          autoDelete: false,
+          exclusive: false,
         },
+        queue: 'nom-nom',
         bindPersistantQueueToHeadersExchange: true,
         listen: ['direct-binding-key', 'test.mandatory'],
       };
@@ -449,14 +450,18 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     });
 
     it('delivers messages using headers', () => {
-      return this.transport
-        .publish('crap-wont-work', 'hi', {
-          confirm: true,
-          exchange: 'amq.match',
-          headers: {
-            'x-routing-key': 'direct-binding-key',
-          },
-        })
+      return Promise
+        .map(['direct-binding-key', 'doesnt-exist'], routingKey => (
+          this.transport
+            .publish('', 'hi', {
+              confirm: true,
+              exchange: 'amq.match',
+              headers: {
+                'routing-key': routingKey,
+              },
+            })
+            .reflect()
+        ))
         .delay(100)
         .then(() => {
           assert.ok(this.spy.calledOnce);

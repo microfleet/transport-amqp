@@ -37,7 +37,7 @@
     "babel-plugin-transform-strict-mode": "^6.24.1",
     "babel-register": "^6.24.1",
     "benchmark": "^2.1.4",
-    "chai": "^4.1.0",
+    "chai": "^4.1.1",
     "codecov": "^2.3.0",
     "cross-env": "^5.0.3",
     "cz-conventional-changelog": "^2.0.0",
@@ -59,7 +59,7 @@
     "stdout-stream": "~1.x.x"
   },
   "dependencies": {
-    "@microfleet/amqp-coffee": "^1.0.1",
+    "@microfleet/amqp-coffee": "^1.1.0",
     "bluebird": "^3.5.0",
     "common-errors": "^1.0.4",
     "debug": "^2.6.8",

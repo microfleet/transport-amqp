@@ -58,6 +58,10 @@ const wrapPromise = (span, promise) => (
     })
 );
 
+const toUniqueStringArray = routes => (
+  Array.isArray(routes) ? uniq(routes) : [routes]
+);
+
 /**
  * Routing function HOC with reply RPC enhancer
  * @param  {Function} messageHandler
@@ -124,6 +128,8 @@ class AMQPTransport extends EventEmitter {
     'routingKey',
     'weight',
   ];
+
+  static error406 = { replyCode: 406 };
 
   /**
    * Instantiate AMQP Transport
@@ -289,9 +295,7 @@ class AMQPTransport extends EventEmitter {
         this.queue = queue;
         return queue.declareAsync();
       })
-      .catch({ replyCode: 406 }, (err) => {
-        log.info('error declaring %s queue: %s', params.queue, err.replyText);
-      })
+      .catch(AMQPTransport.error406, this._on406.bind(this, params))
       .catch((err) => {
         log.warn('failed to init queue', params.queue, err.replyText);
         throw err;
@@ -395,7 +399,7 @@ class AMQPTransport extends EventEmitter {
         // NOTE: if this fails we might have a problem where expired messages
         // are not delivered & private queue is never ready
         return this
-          .bindExchange(queue, this._replyTo, this.config.dlx.params)
+          .bindHeadersExchange(queue, this._replyTo, this.config.dlx.params, 'reply-to')
           .return(data);
       })
       .tap(() => {
@@ -460,7 +464,7 @@ class AMQPTransport extends EventEmitter {
 
       // bind same queue to headers exchange
       if (config.bindPersistantQueueToHeadersExchange === true) {
-        work.push(transport.bindExchange(queue, rebindRoutes, config.headersExchange));
+        work.push(transport.bindHeadersExchange(queue, rebindRoutes, config.headersExchange));
       }
 
       return Promise.all(work);
@@ -576,6 +580,56 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
+   * Declares exchange and reports 406 error.
+   * @param  {Object} params - Exchange params.
+   * @returns {Promise<*>}
+   */
+  declareExchange(params) {
+    return this._amqp
+      .exchangeAsync(params)
+      .call('declareAsync')
+      .catch(AMQPTransport.error406, this._on406.bind(this, params));
+  }
+
+  /**
+   * Binds exchange to queue via route. For Headers exchange
+   * automatically populates arguments with routing-key: <route>.
+   * @param  {string} exchange - Exchange to bind to.
+   * @param  {Queue} queue - Declared queue object.
+   * @param  {string} route - Routing key.
+   * @param  {boolean} [headers=false] - if exchange has `headers` type.
+   * @returns {Promise<*>}
+   */
+  bindRoute(exchange, queue, route, headerName = false) {
+    const queueName = queue.queueOptions.queue;
+    const options = {};
+    let routingKey;
+
+    if (headerName === false) {
+      routingKey = route;
+    } else {
+      options.arguments = {
+        'x-match': 'any',
+        [headerName === true ? 'routing-key' : headerName]: route,
+      };
+      routingKey = '';
+    }
+
+    return queue.bindAsync(exchange, routingKey, options).tap(() => {
+      if (Array.isArray(queue._routes)) {
+        // reconnect might push an extra route
+        if (queue._routes.indexOf(route) === -1) {
+          queue._routes.push(route);
+        }
+
+        this.log.trace('[queue routes]', queue._routes);
+      }
+
+      this.log.debug('queue "%s" bound to exchange "%s" on route "%s"', queueName, exchange, routingKey);
+    });
+  }
+
+  /**
    * Bind specified queue to exchange
    *
    * @param {object} queue   - queue instance created by .createQueue
@@ -585,42 +639,55 @@ class AMQPTransport extends EventEmitter {
    */
   bindExchange(queue, _routes, opts = {}) {
     // make sure we have an expanded array of routes
-    const routes = Array.isArray(_routes) ? uniq(_routes) : [_routes];
+    const routes = toUniqueStringArray(_routes);
 
     // default params
     const params = merge({
       exchange: this.config.exchange,
       type: this.config.exchangeArgs.type,
       durable: true,
+      autoDelete: false,
     }, opts);
 
     const exchange = params.exchange;
+
     assert(exchange, 'exchange name must be specified');
     this.log.debug('bind routes->exchange', routes, exchange);
 
-    return this._amqp
-      .exchangeAsync(params)
-      .call('declareAsync')
-      .catch({ replyCode: 406 }, (err) => {
-        const format = '[406] error declaring exchange with params %s: %s';
-        this.log.warn(format, JSON.stringify(params), err.replyText);
-      })
+    return this.declareExchange(params)
       .return(routes)
       .map(route => (
-        queue.bindAsync(exchange, route).tap(() => {
-          const queueName = queue.queueOptions.queue;
-          if (queue._routes) {
-            // reconnect might push an extra route
-            if (queue._routes.indexOf(route) === -1) {
-              queue._routes.push(route);
-            }
-
-            this.log.trace('[queue routes]', queue._routes);
-          }
-
-          this.log.debug('queue "%s" bound to exchange "%s" on route "%s"', queueName, exchange, route);
-        })
+        this.bindRoute(exchange, queue, route)
       ));
+  }
+
+  /**
+   * Binds multiple routing keys to headers exchange.
+   * @param  {Object} queue
+   * @param  {Mixed} _routes
+   * @param  {Object} opts
+   * @returns {Promise<*>}
+   */
+  bindHeadersExchange(queue, _routes, opts, headerName = true) {
+    // make sure we have an expanded array of routes
+    const routes = toUniqueStringArray(_routes);
+    // default params
+    const params = merge({ durable: true, autoDelete: false }, opts);
+    const exchange = params.exchange;
+
+    // headers exchange
+    // do sanity check
+    assert.equal(params.type, 'headers');
+    assert.ok(exchange, 'exchange must be set');
+
+    this.log.debug('bind routes->exchange/headers', routes, exchange);
+
+    return this.declareExchange(params)
+      .return(routes)
+      .map((route) => {
+        assert.ok(/^[^*#]+$/.test(route));
+        return this.bindRoute(exchange, queue, route, headerName);
+      });
   }
 
   /**
@@ -631,7 +698,7 @@ class AMQPTransport extends EventEmitter {
    */
   unbindExchange(queue, _routes) {
     const exchange = this.config.exchange;
-    const routes = Array.isArray(_routes) ? _routes : [_routes];
+    const routes = toUniqueStringArray(_routes);
 
     return Promise.map(routes, route => (
       queue.unbindAsync(exchange, route).tap(() => {
@@ -895,7 +962,7 @@ class AMQPTransport extends EventEmitter {
       this.log.trace('message pushed into reply queue in %s', latency(time));
 
       // add custom header for routing over amq.headers exchange
-      set(options, 'headers.x-reply-to', replyTo);
+      set(options, 'headers.reply-to', replyTo);
 
       // add opentracing instrumentation
       if (span) {
@@ -1026,6 +1093,14 @@ class AMQPTransport extends EventEmitter {
         err: new ValidationError('couldn\'t deserialize input', 500, 'message.raw'),
       };
     }
+  }
+
+  /**
+   * Handle 406 Error.
+   * @param  {Error} err - 406 Conflict Error.
+   */
+  _on406 = (params, err) => {
+    this.log.warn({ params }, '[406] error declaring exchange/queue:', err.replyText);
   }
 
   /**
