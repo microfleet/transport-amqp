@@ -878,17 +878,23 @@ class AMQPTransport extends EventEmitter {
         span.finish();
       }
 
+      if (raw !== undefined) {
+        this.emit('after', raw);
+      }
+
       return Promise.reject(error);
     }
 
-    const promise = this.send(properties.replyTo, message, { correlationId: properties.correlationId }, span);
-    const response = span === undefined
+    let promise = this.send(properties.replyTo, message, { correlationId: properties.correlationId }, span);
+
+    if (raw !== undefined) {
+      promise = promise
+        .finally(() => this.emit('after', raw));
+    }
+
+    return span === undefined
       ? promise
       : wrapPromise(span, promise);
-
-    return raw !== undefined
-      ? response
-      : Promise.using(response, () => (this.emit('after', raw)));
   }
 
   /**

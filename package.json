@@ -7,7 +7,7 @@
     "compile": "babel -d ./lib ./src",
     "lint": "eslint ./src",
     "test": "npm run lint && npm run test:integration",
-    "test:integration": "cross-env NODE_ENV=test nyc ./node_modules/.bin/_mocha",
+    "test:integration": "cross-env NODE_ENV=test nyc mocha",
     "prepublishOnly": "npm run compile",
     "bench": "npm run compile && node ./bench/roundtrip.js",
     "semantic-release": "semantic-release pre && npm publish && semantic-release post",

@@ -289,8 +289,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
   describe('AMQPTransport.multiConnect', () => {
     let acksCalled = 0;
-    let preCount = 0;
-    let postCount = 0;
+    const preCount = sinon.spy();
+    const postCount = sinon.spy();
 
     const conf = {
       exchange: configuration.exchange,
@@ -321,10 +321,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         this.multi = multi;
         this.publisher = amqp;
 
-        /* eslint-disable no-plusplus */
-        this.multi.on('pre', () => (++preCount));
-        this.multi.on('after', () => (++postCount));
-        /* eslint-enable no-plusplus */
+        this.multi.on('pre', preCount);
+        this.multi.on('after', postCount);
       });
     });
 
@@ -350,6 +348,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         .map(pub, message => (
           this.publisher.publishAndWait(message.route, message.message)
         ))
+        .delay(10) // to allow async action to call 'after'
         .then((responses) => {
           assert.equal(acksCalled, q1.length);
 
@@ -361,8 +360,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           assert.equal(this.spy.callCount, pub.length);
 
           // ensure that pre & after are called for each message
-          assert.equal(preCount, pub.length);
-          assert.equal(postCount, pub.length);
+          assert.equal(preCount.callCount, pub.length);
+          assert.equal(postCount.callCount, pub.length);
         });
     });
 
