@@ -94,8 +94,6 @@ const initRoutingFn = (messageHandler, transport) => {
    * @returns {Void}
    */
   return function router(message, properties, raw) {
-    transport.emit('pre', raw);
-
     // add instrumentation
     const appId = transport._parseInput(properties.appId);
 
@@ -1021,6 +1019,8 @@ class AMQPTransport extends EventEmitter {
 
     return function consumeMessage(originalMessage) {
       const properties = originalMessage.properties;
+
+      amqpTransport.emit('pre', originalMessage);
 
       // pass to the consumer message router
       // data - properties - originalMessage
