@@ -79,8 +79,8 @@ const initRoutingFn = (messageHandler, transport) => {
   function responseHandler(raw, error, data) {
     const { properties, span } = raw;
     return !properties.replyTo || !properties.correlationId
-      ? transport.noop(error, data, span)
-      : transport.reply(properties, { error, data }, span);
+      ? transport.noop(error, data, span, raw)
+      : transport.reply(properties, { error, data }, span, raw);
   }
 
   /**
@@ -94,6 +94,8 @@ const initRoutingFn = (messageHandler, transport) => {
    * @returns {Void}
    */
   return function router(message, properties, raw) {
+    transport.emit('pre', raw);
+
     // add instrumentation
     const appId = transport._parseInput(properties.appId);
 
@@ -230,18 +232,24 @@ class AMQPTransport extends EventEmitter {
    * Noop function with empty correlation id and reply to data
    * @param  {Error} err
    * @param  {Mixed} data
+   * @param  {Span}  [span]
+   * @param  {AMQPMessage} [raw]
    */
-  noop(error, data, span) {
+  noop(error, data, span, raw) {
     const msg = stringify({ error, data }, jsonSerializer);
     this.log.debug('when replying to message with %s response could not be delivered', msg);
 
-    if (span) {
+    if (span !== undefined) {
       if (error) {
         span.setTag(Tags.ERROR, true);
         span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
       }
 
       span.finish();
+    }
+
+    if (raw !== undefined) {
+      this.emit('after', raw);
     }
   }
 
@@ -859,12 +867,14 @@ class AMQPTransport extends EventEmitter {
    *
    * @param   {Object} headers - incoming message headers
    * @param   {Mixed}  message - message to send
+   * @param   {Span}   [span] - opentracing span.
+   * @param   {AMQPMessage} [raw] - raw message.
    */
-  reply(properties, message, span) {
+  reply(properties, message, span, raw) {
     if (!properties.replyTo || !properties.correlationId) {
       const error = new ValidationError('replyTo and correlationId not found in properties', 400);
 
-      if (span) {
+      if (span !== undefined) {
         span.setTag(Tags.ERROR, true);
         span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
         span.finish();
@@ -874,10 +884,13 @@ class AMQPTransport extends EventEmitter {
     }
 
     const promise = this.send(properties.replyTo, message, { correlationId: properties.correlationId }, span);
-
-    return span === undefined
+    const response = span === undefined
       ? promise
       : wrapPromise(span, promise);
+
+    return raw !== undefined
+      ? response
+      : Promise.using(response, () => (this.emit('after', raw)));
   }
 
   /**

@@ -289,6 +289,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
   describe('AMQPTransport.multiConnect', () => {
     let acksCalled = 0;
+    let preCount = 0;
+    let postCount = 0;
 
     const conf = {
       exchange: configuration.exchange,
@@ -308,6 +310,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         callback(null, message);
       });
 
+      // adds QoS for the first queue, but not all the others
       const consumer = AMQPTransport.multiConnect(conf, spy, [{
         neck: 1,
       }]);
@@ -317,6 +320,11 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       return Promise.join(consumer, publisher, (multi, amqp) => {
         this.multi = multi;
         this.publisher = amqp;
+
+        /* eslint-disable no-plusplus */
+        this.multi.on('pre', () => (++preCount));
+        this.multi.on('after', () => (++postCount));
+        /* eslint-enable no-plusplus */
       });
     });
 
@@ -351,6 +359,10 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           });
 
           assert.equal(this.spy.callCount, pub.length);
+
+          // ensure that pre & after are called for each message
+          assert.equal(preCount, pub.length);
+          assert.equal(postCount, pub.length);
         });
     });
 
