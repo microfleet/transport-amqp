@@ -557,7 +557,7 @@ class AMQPTransport extends EventEmitter {
           consumer.on('cancel', rebind);
 
           // emit event that we consumer & queue is ready
-          transport.log.info('[consumed-queue-reconnected] %s', queue.queueOptions.queue);
+          transport.log.info('[consumed-queue-reconnected] %s - %s', queue.queueOptions.queue, consumer.consumerTag);
           transport.emit('consumed-queue-reconnected', consumer, queue);
 
           return [consumer, queue, establishConsumer];
