@@ -3,7 +3,6 @@ const noop = require('lodash/noop');
 const defaults = require('lodash/defaults');
 const is = require('is');
 const omit = require('lodash/omit');
-const { methods } = require('@microfleet/amqp-coffee/bin/src/lib/config').protocol;
 const { MSError } = require('./utils/serialization');
 
 /**
@@ -94,11 +93,12 @@ exports.closeConsumer = function closeConsumer(consumer) {
   consumer.on('error', noop);
 
   // close channel
-  return Promise.fromCallback(done => (
-    consumer.close(() => {
-      consumer.waitForMethod(methods.channelClose, () => done());
+  return Promise
+    .fromCallback((done) => {
+      consumer.cancel(done);
     })
-  ));
+    .timeout(5000)
+    .catch(Promise.TimeoutError, noop);
 };
 
 // error data that is going to be copied

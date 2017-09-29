@@ -165,7 +165,7 @@ class AMQPTransport extends EventEmitter {
 
     // setup instance
     this._replyTo = null;
-    this._consumers = new WeakMap();
+    this._consumers = new Map();
     this._queues = new WeakMap();
     this._boundEmit = this.emit.bind(this);
 
@@ -190,6 +190,10 @@ class AMQPTransport extends EventEmitter {
       // to avoid useless redistributions of the message
       this._extraQueueOptions.arguments = { 'x-dead-letter-exchange': config.dlx.params.exchange };
     }
+  }
+
+  get consumers() {
+    return Array.from(this._consumers, x => x[1]);
   }
 
   /**
@@ -479,7 +483,9 @@ class AMQPTransport extends EventEmitter {
 
       // if we have old consumer
       if (oldConsumer) {
-        promise = promise.tap(() => closeConsumer.call(this, oldConsumer));
+        transport._consumers.delete(establishConsumer);
+        promise = promise
+          .tap(() => closeConsumer.call(this, oldConsumer));
       }
 
       return promise
