@@ -559,7 +559,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         debug('initial reconnect');
         // #2 reconnected, try publish
         return transport
-          .publishAndWait('/', { foo: 'bar' })
+          .publishAndWait('/', { foo: 'bar' }, { timeout: 500 })
           .then((message) => {
             // #4 OK, try unbind
             assert.deepEqual(message, { bar: 'baz' });
@@ -582,7 +582,9 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
               this.proxy.interrupt(20);
             }, 10);
           })
-          .catch(() => {});
+          .catch((e) => {
+            debug('error for publish', e);
+          });
       });
 
       transport.createConsumedQueue(router)
