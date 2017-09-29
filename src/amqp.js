@@ -165,7 +165,7 @@ class AMQPTransport extends EventEmitter {
 
     // setup instance
     this._replyTo = null;
-    this._consumers = new Map();
+    this._consumers = new WeakMap();
     this._queues = new WeakMap();
     this._boundEmit = this.emit.bind(this);
 

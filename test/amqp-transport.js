@@ -8,6 +8,7 @@ const sinon = require('sinon');
 const assert = require('assert');
 const microtime = require('microtime');
 const MockTracer = require('opentracing/lib/mock_tracer').MockTracer;
+const debug = require('debug')('amqp');
 
 // add inject/extract implementation
 MockTracer.prototype._inject = (span, format, carrier) => {
@@ -507,6 +508,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           port: 9010,
           heartbeat: 2000,
         },
+        debug: true,
         exchange: 'test-direct',
         exchangeArgs: {
           autoDelete: false,
@@ -553,19 +555,22 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     it('should create consumed queue', (done) => {
       const transport = this.transport;
-      transport.on('consumed-queue-reconnected', (consumer, queue) => (
+      transport.on('consumed-queue-reconnected', (consumer, queue) => {
+        debug('initial reconnect');
         // #2 reconnected, try publish
-        transport
+        return transport
           .publishAndWait('/', { foo: 'bar' })
           .then((message) => {
             // #4 OK, try unbind
             assert.deepEqual(message, { bar: 'baz' });
+            debug('unbind exchange from /', queue);
             return transport.unbindExchange(queue, '/');
           })
           .then(() => {
             // #5 unbinded, let's reconnect
             transport.removeAllListeners('consumed-queue-reconnected');
             transport.on('consumed-queue-reconnected', () => {
+              debug('reconnected for the second time');
               // #7 reconnected again
               transport.publish('/', { bar: 'foo' });
               Promise.delay(1000).tap(done);
@@ -573,17 +578,19 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
             // #6 trigger error again
             setTimeout(() => {
+              debug('called interrupt in 20');
               this.proxy.interrupt(20);
             }, 10);
           })
-          .catch(() => {})
-      ));
+          .catch(() => {});
+      });
 
       transport.createConsumedQueue(router)
         .spread((consumer, queue) => transport.bindExchange(queue, '/'))
         .tap(() => {
           // #1 trigger error
           setTimeout(() => {
+            debug('called interrupt in 20');
             this.proxy.interrupt(20);
           }, 10);
         });
