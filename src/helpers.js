@@ -97,6 +97,7 @@ exports.closeConsumer = function closeConsumer(consumer) {
     .fromCallback((done) => {
       consumer.cancel(done);
     })
+    .tap(() => this.log.info('closed consumer', consumer.consumerTag))
     .timeout(5000)
     .catch(Promise.TimeoutError, noop);
 };
