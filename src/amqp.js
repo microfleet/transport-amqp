@@ -192,10 +192,6 @@ class AMQPTransport extends EventEmitter {
     }
   }
 
-  get consumers() {
-    return Array.from(this._consumers, x => x[1]);
-  }
-
   /**
    * Connects to AMQP, if config.router is specified earlier,
    * automatically invokes .consume function
