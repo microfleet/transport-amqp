@@ -570,7 +570,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
             // #5 unbinded, let's reconnect
             transport.removeAllListeners('consumed-queue-reconnected');
             transport.on('consumed-queue-reconnected', () => {
-              debug('reconnected for the second time');
+              debug('reconnected for the second time, publish must not succeed');
               // #7 reconnected again
               transport.publish('/', { bar: 'foo' });
               Promise.delay(1000).tap(done);
@@ -578,7 +578,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
             // #6 trigger error again
             setTimeout(() => {
-              debug('called interrupt in 20');
+              debug('called interrupt (2) in 20');
               this.proxy.interrupt(20);
             }, 10);
           })
@@ -590,7 +590,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         .tap(() => {
           // #1 trigger error
           setTimeout(() => {
-            debug('called interrupt in 20');
+            debug('called interrupt (1) in 20');
             this.proxy.interrupt(20);
           }, 10);
         });
