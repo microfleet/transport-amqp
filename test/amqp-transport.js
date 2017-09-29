@@ -548,7 +548,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           Promise.delay(300).then(() => this.proxy.interrupt(3000)),
         ]))
         .spread((consumer, queue, establishConsumer) => Promise.join(
-          transport.stopConsumedQueue(consumer, establishConsumer),
+          transport.stopConsumedQueue(establishConsumer),
           Promise.fromCallback(next => queue.delete(next))
         ));
     });

@@ -582,9 +582,15 @@ class AMQPTransport extends EventEmitter {
    * Stops consumed queue from reestablishing connection
    * @returns {Promise<*>}
    */
-  stopConsumedQueue(consumer, bindFn) {
+  stopConsumedQueue(bindFn) {
     this.removeListener('ready', bindFn);
-    return Promise.bind(this, consumer).then(closeConsumer);
+    const consumer = this._consumers.get(bindFn);
+
+    if (!consumer) return Promise.resolve();
+
+    return Promise
+      .bind(this, consumer)
+      .then(closeConsumer);
   }
 
   /**
