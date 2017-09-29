@@ -563,7 +563,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           .then((message) => {
             // #4 OK, try unbind
             assert.deepEqual(message, { bar: 'baz' });
-            debug('unbind exchange from /', queue);
+            debug('unbind exchange from /', queue.queueOptions.name);
             return transport.unbindExchange(queue, '/');
           })
           .then(() => {
