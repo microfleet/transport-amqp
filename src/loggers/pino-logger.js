@@ -3,7 +3,7 @@ const stdout = require('stdout-stream');
 
 // holy crap with stdout and good
 const isProduction = process.env.NODE_ENV === 'production';
-const write = stdout.write;
+const { write } = stdout;
 stdout.write = (chunk, enc, next) => write.call(stdout, chunk, enc, next);
 
 module.exports = (name = 'ms-amqp-transport', settings = {}) => {

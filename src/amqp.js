@@ -50,7 +50,12 @@ const wrapPromise = (span, promise) => (
   promise
     .catch((error) => {
       span.setTag(Tags.ERROR, true);
-      span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
+      span.log({
+        event: 'error',
+        'error.object': error,
+        message: error.message,
+        stack: error.stack,
+      });
       throw error;
     })
     .finally(() => {
@@ -240,7 +245,9 @@ class AMQPTransport extends EventEmitter {
     if (span !== undefined) {
       if (error) {
         span.setTag(Tags.ERROR, true);
-        span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
+        span.log({
+          event: 'error', 'error.object': error, message: error.message, stack: error.stack,
+        });
       }
 
       span.finish();
@@ -358,7 +365,7 @@ class AMQPTransport extends EventEmitter {
 
         // consume errors - re-create when we encounter 404
         consumer.on('error', (err) => {
-          const error = err.error;
+          const { error } = err;
           if (error && error.replyCode === 404 && error.replyText.indexOf(options.queue) !== -1) {
             // https://github.com/dropbox/amqp-coffee#consumer-event-error
             // handle consumer error on reconnect and close consumer
@@ -433,15 +440,17 @@ class AMQPTransport extends EventEmitter {
     }
 
     const transport = this;
-    const config = this.config;
+    const { config } = transport;
     const router = initRoutingFn(messageHandler, transport);
     const baseOpts = { router, neck: config.neck, queue: config.queue || '' };
     const queueOptions = merge(baseOpts, config.defaultQueueOpts, this._extraQueueOptions, options);
 
     if (config.bindPersistantQueueToHeadersExchange === true) {
       listen.forEach((route) => {
-        assert.ok(/^[^*#]+$/, route,
-          'with bindPersistantQueueToHeadersExchange:true routes must not have patterns');
+        assert.ok(
+          /^[^*#]+$/, route,
+          'with bindPersistantQueueToHeadersExchange:true routes must not have patterns'
+        );
       });
     }
 
@@ -481,13 +490,12 @@ class AMQPTransport extends EventEmitter {
       transport.log.debug('[establish consumer]', attempt);
 
       const oldConsumer = transport._consumers.get(establishConsumer);
-      let promise = Promise.resolve(transport);
+      let promise = Promise.bind(transport, transport);
 
       // if we have old consumer
       if (oldConsumer) {
         transport._consumers.delete(establishConsumer);
-        promise = promise
-          .tap(() => closeConsumer.call(this, oldConsumer));
+        promise = promise.tap(() => closeConsumer.call(transport, oldConsumer));
       }
 
       return promise
@@ -566,7 +574,7 @@ class AMQPTransport extends EventEmitter {
           transport.log.warn('[consumed-queue-down]', e);
           return Promise
             .resolve(attempt + 1)
-            .delay(this.recovery.get('consumed', attempt + 1))
+            .delay(transport.recovery.get('consumed', attempt + 1))
             .then(establishConsumer);
         });
     }
@@ -663,8 +671,7 @@ class AMQPTransport extends EventEmitter {
       autoDelete: false,
     }, opts);
 
-    const exchange = params.exchange;
-
+    const { exchange } = params;
     assert(exchange, 'exchange name must be specified');
     this.log.debug('bind routes->exchange', routes, exchange);
 
@@ -687,7 +694,7 @@ class AMQPTransport extends EventEmitter {
     const routes = toUniqueStringArray(_routes);
     // default params
     const params = merge({ durable: true, autoDelete: false }, opts);
-    const exchange = params.exchange;
+    const { exchange } = params;
 
     // headers exchange
     // do sanity check
@@ -711,7 +718,7 @@ class AMQPTransport extends EventEmitter {
    * @param {string} _routes - messages sent to this route will be delivered to queue
    */
   unbindExchange(queue, _routes) {
-    const exchange = this.config.exchange;
+    const { exchange } = this.config;
     const routes = toUniqueStringArray(_routes);
 
     return Promise.map(routes, route => (
@@ -882,7 +889,9 @@ class AMQPTransport extends EventEmitter {
 
       if (span !== undefined) {
         span.setTag(Tags.ERROR, true);
-        span.log({ event: 'error', 'error.object': error, message: error.message, stack: error.stack });
+        span.log({
+          event: 'error', 'error.object': error, message: error.message, stack: error.stack,
+        });
         span.finish();
       }
 
@@ -966,7 +975,7 @@ class AMQPTransport extends EventEmitter {
 
     // slightly longer timeout, if message was not consumed in time, it will return with expiration
     return new Promise((resolve, reject) => {
-      const replyStorage = this.replyStorage;
+      const { replyStorage } = this;
       // generate response id
       const correlationId = options.correlationId || uuid.v4();
       // timeout before RPC times out
@@ -1032,7 +1041,7 @@ class AMQPTransport extends EventEmitter {
     assert(is.fn(router), '`router` must be a function');
 
     return function consumeMessage(originalMessage) {
-      const properties = originalMessage.properties;
+      const { properties } = originalMessage;
 
       amqpTransport.emit('pre', originalMessage);
 
@@ -1135,10 +1144,10 @@ class AMQPTransport extends EventEmitter {
    */
   _onConnect = () => {
     const { serverProperties } = this._amqp;
-    const { cluster_name, version } = serverProperties;
+    const { cluster_name: clusterName, version } = serverProperties;
 
     // emit connect event through log
-    this.log.info('connected to %s v%s', cluster_name, version);
+    this.log.info('connected to %s v%s', clusterName, version);
 
     // https://github.com/dropbox/amqp-coffee#reconnect-flow
     // recreate unnamed private queue

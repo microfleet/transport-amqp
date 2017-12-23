@@ -70,12 +70,12 @@ function jsonDeserializer(key, value) {
     return value;
   }
 
-  const data = value.data;
+  const { data } = value;
   if (!data) {
     return value;
   }
 
-  const type = value.type;
+  const { type } = value;
   switch (type) {
     case 'ms-error':
       return deserializeError(data);
