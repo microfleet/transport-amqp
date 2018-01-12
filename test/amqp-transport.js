@@ -7,7 +7,7 @@ const stringify = require('json-stringify-safe');
 const sinon = require('sinon');
 const assert = require('assert');
 const microtime = require('microtime');
-const MockTracer = require('opentracing/lib/mock_tracer').MockTracer;
+const { MockTracer } = require('opentracing/lib/mock_tracer');
 const debug = require('debug')('amqp');
 
 // add inject/extract implementation
@@ -277,7 +277,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       ];
 
       return Promise.all(promises).spread((initial, cached, nonCached) => {
-        const toMiliseconds = latency.toMiliseconds;
+        const { toMiliseconds } = latency;
         assert.equal(toMiliseconds(initial.time), toMiliseconds(cached.time));
         assert(toMiliseconds(initial.time) < toMiliseconds(nonCached.time));
       });
@@ -536,7 +536,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     }
 
     it('reestablishing consumed queue', () => {
-      const transport = this.transport;
+      const { transport } = this;
       const publish = () => transport.publishAndWait('/', { foo: 'bar' }, { confirm: true });
 
       return transport
@@ -554,7 +554,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     });
 
     it('should create consumed queue', (done) => {
-      const transport = this.transport;
+      const { transport } = this;
       transport.on('consumed-queue-reconnected', (consumer, queue) => {
         debug('initial reconnect');
         // #2 reconnected, try publish

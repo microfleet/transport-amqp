@@ -960,10 +960,7 @@ class AMQPTransport extends EventEmitter {
 
       return promise
         .return(this)
-        .call('createMessageHandler', routing, message, options, publishMessage, span)
-        .finally(() => {
-          this.log.debug('private queue resolved after %s', latency(time));
-        });
+        .call('createMessageHandler', routing, message, options, publishMessage, span);
     }
 
     // work with cache if options.cache is set and is number
@@ -973,14 +970,14 @@ class AMQPTransport extends EventEmitter {
       return Promise.resolve(cachedResponse.value);
     }
 
-    // slightly longer timeout, if message was not consumed in time, it will return with expiration
-    return new Promise((resolve, reject) => {
-      const { replyStorage } = this;
-      // generate response id
-      const correlationId = options.correlationId || uuid.v4();
-      // timeout before RPC times out
-      const timeout = options.timeout || this.config.timeout;
+    const { replyStorage } = this;
+    // generate response id
+    const correlationId = options.correlationId || uuid.v4();
+    // timeout before RPC times out
+    const timeout = options.timeout || this.config.timeout;
 
+    // slightly longer timeout, if message was not consumed in time, it will return with expiration
+    const publishPromise = new Promise((resolve, reject) => {
       // push into RPC request storage
       replyStorage.push(correlationId, {
         timeout,
@@ -991,35 +988,38 @@ class AMQPTransport extends EventEmitter {
         cache: cachedResponse,
         timer: null,
       });
-
-      // debugging
-      this.log.trace('message pushed into reply queue in %s', latency(time));
-
-      // add custom header for routing over amq.headers exchange
-      set(options, 'headers.reply-to', replyTo);
-
-      // add opentracing instrumentation
-      if (span) {
-        this.tracer.inject(span.context(), FORMAT_TEXT_MAP, options.headers);
-      }
-
-      // this is to ensure that queue is not overflown and work will not
-      // be completed later on
-      publishMessage
-        .call(this, routing, message, {
-          ...options,
-          replyTo,
-          correlationId,
-          expiration: Math.ceil(timeout * 0.9).toString(),
-        }, span)
-        .tap(() => {
-          this.log.trace('message published in %s', latency(time));
-        })
-        .catch((err) => {
-          this.log.error('error sending message', err);
-          replyStorage.reject(correlationId, err);
-        });
     });
+
+    // debugging
+    this.log.trace('message pushed into reply queue in %s', latency(time));
+
+    // add custom header for routing over amq.headers exchange
+    set(options, 'headers.reply-to', replyTo);
+
+    // add opentracing instrumentation
+    if (span) {
+      this.tracer.inject(span.context(), FORMAT_TEXT_MAP, options.headers);
+    }
+
+    // this is to ensure that queue is not overflown and work will not
+    // be completed later on
+    publishMessage
+      .call(this, routing, message, {
+        ...options,
+        replyTo,
+        correlationId,
+        expiration: Math.ceil(timeout * 0.9).toString(),
+      }, span)
+      .tap(() => {
+        this.log.trace('message published in %s', latency(time));
+        this.emit('publish', routing, message);
+      })
+      .catch((err) => {
+        this.log.error('error sending message', err);
+        replyStorage.reject(correlationId, err);
+      });
+
+    return publishPromise;
   }
 
   /**
