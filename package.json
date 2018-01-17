@@ -50,7 +50,7 @@
     "microtime": "^2.1.7",
     "mocha": "^4.1.0",
     "nyc": "^11.4.1",
-    "sinon": "^4.1.4",
+    "sinon": "^4.1.6",
     "stdout-stream": "^1.4.0"
   },
   "peerDependencies": {
@@ -71,7 +71,7 @@
     "object-hash": "^1.2.0",
     "opentracing": "^0.14.1",
     "pino": "^4.10.3",
-    "uuid": "^3.1.0"
+    "uuid": "^3.2.1"
   },
   "files": [
     "lib/",
