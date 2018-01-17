@@ -739,6 +739,27 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
+   * Low-level publishing method
+   * @param  {string} exchange
+   * @param  {string} queueOrRoute
+   * @param  {mixed} message
+   * @param  {Object} options
+   * @returns {Promise<*>}
+   */
+  sendToServer(exchange, queueOrRoute, message, options) {
+    return this._amqp
+      .publishAsync(
+        exchange,
+        queueOrRoute,
+        options.skipSerialize === true ? message : stringify(message, jsonSerializer),
+        this._publishOptions(options)
+      )
+      .tap(() => {
+        this.emit('publish', queueOrRoute, message);
+      });
+  }
+
+  /**
    * Send message to specified route
    *
    * @param   {String} route   - destination route
@@ -760,11 +781,11 @@ class AMQPTransport extends EventEmitter {
       [Tags.MESSAGE_BUS_DESTINATION]: `${exchange}:${route}`,
     });
 
-    return wrapPromise(span, this._amqp.publishAsync(
+    return wrapPromise(span, this.sendToServer(
       exchange,
       route,
-      options.skipSerialize === true ? message : stringify(message, jsonSerializer),
-      this._publishOptions(options)
+      message,
+      options
     ));
   }
 
@@ -791,11 +812,11 @@ class AMQPTransport extends EventEmitter {
       [Tags.MESSAGE_BUS_DESTINATION]: `${exchange || '<empty>'}:${queue}`,
     });
 
-    return wrapPromise(span, this._amqp.publishAsync(
+    return wrapPromise(span, this.sendToServer(
       exchange,
       queue,
-      options.skipSerialize === true ? message : stringify(message, jsonSerializer),
-      this._publishOptions(options)
+      message,
+      options
     ));
   }
 
@@ -1012,7 +1033,6 @@ class AMQPTransport extends EventEmitter {
       }, span)
       .tap(() => {
         this.log.trace('message published in %s', latency(time));
-        this.emit('publish', routing, message);
       })
       .catch((err) => {
         this.log.error('error sending message', err);
