@@ -1,6 +1,9 @@
 // deps
 const Promise = require('bluebird');
+const gunzip = Promise.promisify(require('zlib').gunzip);
+const gzip = Promise.promisify(require('zlib').gzip);
 const uuid = require('uuid');
+const flatstr = require('flatstr');
 const stringify = require('json-stringify-safe');
 const EventEmitter = require('eventemitter3');
 const os = require('os');
@@ -44,10 +47,12 @@ const { jsonSerializer, jsonDeserializer } = require('./utils/serialization');
 const { AmqpDLXError } = generateErrorMessage;
 const { closeConsumer, wrapError, setQoS } = helpers;
 const { Tags, FORMAT_TEXT_MAP } = opentracing;
+const PARSE_ERR = new ValidationError('couldn\'t deserialize input', 500, 'message.raw');
 
 // wrap promise
 const wrapPromise = (span, promise) => (
-  promise
+  Promise
+    .resolve(promise)
     .catch((error) => {
       span.setTag(Tags.ERROR, true);
       span.log({
@@ -56,12 +61,32 @@ const wrapPromise = (span, promise) => (
         message: error.message,
         stack: error.stack,
       });
-      throw error;
+
+      return Promise.reject(error);
     })
     .finally(() => {
       span.finish();
     })
 );
+
+const serialize = async (message, publishOptions) => {
+  let serialized;
+  switch (publishOptions.contentType) {
+    case 'application/json':
+    case 'string/utf8':
+      serialized = Buffer.from(flatstr(stringify(message, jsonSerializer)));
+      break;
+
+    default:
+      throw new Error('invalid content-type');
+  }
+
+  if (publishOptions.contentEncoding === 'gzip') {
+    return gzip(serialized);
+  }
+
+  return serialized;
+};
 
 const toUniqueStringArray = routes => (
   Array.isArray(routes) ? uniq(routes) : [routes]
@@ -746,17 +771,18 @@ class AMQPTransport extends EventEmitter {
    * @param  {Object} options
    * @returns {Promise<*>}
    */
-  sendToServer(exchange, queueOrRoute, message, options) {
-    return this._amqp
-      .publishAsync(
-        exchange,
-        queueOrRoute,
-        options.skipSerialize === true ? message : stringify(message, jsonSerializer),
-        this._publishOptions(options)
-      )
-      .tap(() => {
-        this.emit('publish', queueOrRoute, message);
-      });
+  async sendToServer(exchange, queueOrRoute, _message, options) {
+    const publishOptions = this._publishOptions(options);
+    const message = options.skipSerialize === true
+      ? _message
+      : await serialize(_message, publishOptions);
+
+    const request = await this._amqp
+      .publishAsync(exchange, queueOrRoute, message, publishOptions);
+
+    this.emit('publish', queueOrRoute, message);
+
+    return request;
   }
 
   /**
@@ -883,7 +909,12 @@ class AMQPTransport extends EventEmitter {
    */
   _publishOptions(options = {}) {
     // remove unused opts
-    const { skipSerialize, ...opts } = options;
+    const { skipSerialize, gzip: needsGzip, ...opts } = options;
+
+    // force contentEncoding
+    if (needsGzip === true) {
+      opts.contentEncoding = 'gzip';
+    }
 
     // set default opts
     defaults(opts, this._defaultOpts);
@@ -1054,30 +1085,32 @@ class AMQPTransport extends EventEmitter {
    *  - @param {Function} reject(): function: only used when prefetchCount is specified
    *  - @param {Function} retry(): function: only used when prefetchCount is specified
    */
-  _onConsume = (router) => {
-    const parseInput = this._parseInput;
+  _onConsume = (_router) => {
+    assert(is.fn(_router), '`router` must be a function');
+
+    // use bind as it is now fast
     const amqpTransport = this;
+    const parseInput = amqpTransport._parseInput.bind(amqpTransport);
+    const router = _router.bind(amqpTransport);
 
-    assert(is.fn(router), '`router` must be a function');
+    return async function consumeMessage(incoming) {
+      // emit pre processing hook
+      amqpTransport.emit('pre', incoming);
 
-    return function consumeMessage(originalMessage) {
-      const { properties } = originalMessage;
+      // extract message data
+      const { properties } = incoming;
+      const { contentType, contentEncoding } = properties;
 
-      amqpTransport.emit('pre', originalMessage);
+      // parsed input data
+      const message = await parseInput(incoming.raw, contentType, contentEncoding);
+      // useful message properties
+      const props = extend({}, properties, pick(incoming, AMQPTransport.extendMessageProperties));
 
       // pass to the consumer message router
-      // data - properties - originalMessage
-      return router.call(
-        // call context
-        amqpTransport,
-        // parsed input data
-        parseInput.call(amqpTransport, originalMessage.raw), // message data
-        // message properties
-        extend(properties, pick(originalMessage, AMQPTransport.extendMessageProperties)),
-        // raw<{ ack: ?Function, reject: ?Function, retry: ?Function }>
-        // and everything else from amqp-coffee
-        originalMessage
-      );
+      // message - properties - incoming
+      //  incoming.raw<{ ack: ?Function, reject: ?Function, retry: ?Function }>
+      //  and everything else from amqp-coffee
+      return router(message, props, incoming);
     };
   }
 
@@ -1140,14 +1173,36 @@ class AMQPTransport extends EventEmitter {
    * @param  {Buffer} _data
    * @return {Object}
    */
-  _parseInput(_data) {
+  async _parseInput(_data, contentType = 'application/json', contentEncoding = 'plain') {
+    let data;
+
+    switch (contentEncoding) {
+      case 'gzip':
+        data = await gunzip(_data);
+        break;
+
+      case 'plain':
+        data = _data;
+        break;
+
+      default:
+        return { err: PARSE_ERR };
+    }
+
     try {
-      return JSON.parse(_data, jsonDeserializer);
+      switch (contentType) {
+        // default encoding when we were pre-stringifying and sending str
+        // and our updated encoding when we send buffer now
+        case 'string/utf8':
+        case 'application/json':
+          return JSON.parse(data, jsonDeserializer);
+
+        default:
+          return data;
+      }
     } catch (err) {
       this.log.warn('Error parsing buffer', err, String(_data));
-      return {
-        err: new ValidationError('couldn\'t deserialize input', 500, 'message.raw'),
-      };
+      return { err: PARSE_ERR };
     }
   }
 
