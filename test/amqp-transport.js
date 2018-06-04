@@ -296,8 +296,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     let transport;
 
     before('init publisher', async () => {
-      transport = new AMQPTransport(configuration);
-      await transport.connect();
+      transport = await AMQPTransport.connect(configuration);
     });
 
     it('parses application/json+gzip', async () => {

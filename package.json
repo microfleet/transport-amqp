@@ -9,7 +9,7 @@
     "test": "yarn lint && yarn test:e2e",
     "pretest:e2e": "docker-compose -f ./test/docker-compose.yml up -d",
     "test:e2e": "cross-env NODE_ENV=test nyc mocha",
-    "posttest:e2e": "docker-compose -f ./test/docker-compose.yml rm -f -v",
+    "posttest:e2e": "docker-compose -f ./test/docker-compose.yml stop; docker-compose -f ./test/docker-compose.yml rm -f -v",
     "prepublishOnly": "yarn compile",
     "bench": "yarn compile && node ./bench/roundtrip.js",
     "semantic-release": "semantic-release",
