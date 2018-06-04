@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  rabbitmq:
+    ports:
+      - "15672:15672"
+      - "4369:4369"
+      - "5672:5672"
+      - "25672:25672"
+    expose:
+      - "4369"
+      - "5672"
+      - "25672"
+    image: makeomatic/rabbitmq:3.6.12
+    hostname: rabbitmq

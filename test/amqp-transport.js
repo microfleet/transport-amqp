@@ -164,7 +164,10 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     return AMQPTransport
       .connect(opts, function listener(message, headers, actions, callback) {
-        callback(null, { resp: `${message}-response`, time: process.hrtime() });
+        callback(null, {
+          resp: typeof message === 'object' ? message : `${message}-response`,
+          time: process.hrtime(),
+        });
       })
       .then((amqp) => {
         assert.equal(amqp._amqp.state, 'open');
@@ -286,6 +289,53 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     after('close published', () => (
       this.cached.close()
     ));
+  });
+
+  describe('contentEncoding, contentType', () => {
+    const gzip = Promise.promisify(require('zlib').gzip);
+    let transport;
+
+    before('init publisher', async () => {
+      transport = new AMQPTransport(configuration);
+      await transport.connect();
+    });
+
+    it('parses application/json+gzip', async () => {
+      let response;
+      const original = {
+        sample: true,
+        buf: Buffer.from('content'),
+      };
+
+      // send pre-serialized datum with gzip
+      response = await transport.publishAndWait(
+        'test.default',
+        await gzip(JSON.stringify(original)),
+        {
+          skipSerialize: true,
+          contentEncoding: 'gzip',
+        }
+      );
+      assert.deepStrictEqual(response.resp, original);
+
+      // pre-serialize no-gzip
+      response = await transport.publishAndWait(
+        'test.default',
+        Buffer.from(JSON.stringify(original)),
+        { skipSerialize: true }
+      );
+      assert.deepStrictEqual(response.resp, original);
+
+      // not-serialized
+      response = await transport.publishAndWait('test.default', original);
+      assert.deepStrictEqual(response.resp, original);
+
+      // not-serialized + gzip
+      response = await transport.publishAndWait('test.default', original, { gzip: true });
+      assert.deepStrictEqual(response.resp, original);
+    });
+
+    after('close publisher', () => transport.close());
   });
 
   describe('AMQPTransport.multiConnect', () => {

@@ -252,6 +252,14 @@ module.exports = Joi
         immediate: Joi.boolean()
           .default(false, 'not implemented by rabbitmq'),
 
+        contentType: Joi.string()
+          .default('application/json')
+          .description('default content-type for messages'),
+
+        contentEncoding: Joi.string()
+          .default('plain')
+          .description('default content-encoding'),
+
         headers: Joi.object()
           .default(),
       })
