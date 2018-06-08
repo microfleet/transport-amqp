@@ -88,6 +88,15 @@ const serialize = async (message, publishOptions) => {
   return serialized;
 };
 
+function safeJSONParse(data, log) {
+  try {
+    return JSON.parse(data, jsonDeserializer);
+  } catch (err) {
+    log.warn('Error parsing buffer', err, String(data));
+    return { err: PARSE_ERR };
+  }
+}
+
 const toUniqueStringArray = routes => (
   Array.isArray(routes) ? uniq(routes) : [routes]
 );
@@ -125,7 +134,7 @@ const initRoutingFn = (messageHandler, transport) => {
    */
   return function router(message, properties, raw) {
     // add instrumentation
-    const appId = transport._parseInput(properties.appId);
+    const appId = safeJSONParse(properties.appId, this.log);
 
     // opentracing instrumentation
     const childOf = this.tracer.extract(FORMAT_TEXT_MAP, properties.headers || {});
@@ -1110,7 +1119,7 @@ class AMQPTransport extends EventEmitter {
       // message - properties - incoming
       //  incoming.raw<{ ack: ?Function, reject: ?Function, retry: ?Function }>
       //  and everything else from amqp-coffee
-      return router(message, props, incoming);
+      setImmediate(router, message, props, incoming);
     };
   }
 
@@ -1178,7 +1187,7 @@ class AMQPTransport extends EventEmitter {
 
     switch (contentEncoding) {
       case 'gzip':
-        data = await gunzip(_data);
+        data = await gunzip(_data).catchReturn({ err: PARSE_ERR });
         break;
 
       case 'plain':
@@ -1189,20 +1198,15 @@ class AMQPTransport extends EventEmitter {
         return { err: PARSE_ERR };
     }
 
-    try {
-      switch (contentType) {
-        // default encoding when we were pre-stringifying and sending str
-        // and our updated encoding when we send buffer now
-        case 'string/utf8':
-        case 'application/json':
-          return JSON.parse(data, jsonDeserializer);
+    switch (contentType) {
+      // default encoding when we were pre-stringifying and sending str
+      // and our updated encoding when we send buffer now
+      case 'string/utf8':
+      case 'application/json':
+        return safeJSONParse(data, this.log);
 
-        default:
-          return data;
-      }
-    } catch (err) {
-      this.log.warn('Error parsing buffer', err, String(_data));
-      return { err: PARSE_ERR };
+      default:
+        return data;
     }
   }
 

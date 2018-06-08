@@ -306,14 +306,14 @@
     mkdirp "^0.5.1"
     rimraf "^2.5.2"
 
-"@microfleet/amqp-coffee@^1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@microfleet/amqp-coffee/-/amqp-coffee-1.1.0.tgz#ed43ba09a0a771810ca87a2f3ca7c0d24d1f3c1a"
+"@microfleet/amqp-coffee@^1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@microfleet/amqp-coffee/-/amqp-coffee-1.2.0.tgz#49ed9d6582825545a9d13dc4e6ab7613e1dc2e99"
   dependencies:
-    async "^2.5.0"
-    bson "^1.0.4"
-    debug "^2.6.8"
-    lodash "^4.17.4"
+    async "^2.6.1"
+    bson "^2.0.7"
+    debug "^3.1.0"
+    lodash "^4.17.10"
 
 "@mrmlnc/readdir-enhanced@^2.2.1":
   version "2.2.1"
@@ -647,7 +647,7 @@ async@^1.4.0:
   version "1.5.2"
   resolved "https://registry.yarnpkg.com/async/-/async-1.5.2.tgz#ec6a61ae56480c0c3cb241c95618e20892f9672a"
 
-async@^2.5.0:
+async@^2.6.1:
   version "2.6.1"
   resolved "https://registry.yarnpkg.com/async/-/async-2.6.1.tgz#b245a23ca71930044ec53fa46aa00a3e87c6a610"
   dependencies:
@@ -984,9 +984,9 @@ browser-stdout@1.3.1:
   version "1.3.1"
   resolved "https://registry.yarnpkg.com/browser-stdout/-/browser-stdout-1.3.1.tgz#baa559ee14ced73452229bad7326467c61fabd60"
 
-bson@^1.0.4:
-  version "1.0.6"
-  resolved "https://registry.yarnpkg.com/bson/-/bson-1.0.6.tgz#444db59ddd4c24f0cb063aabdc5c8c7b0ceca912"
+bson@^2.0.7:
+  version "2.0.8"
+  resolved "https://registry.yarnpkg.com/bson/-/bson-2.0.8.tgz#e3bcc115e486bdcb222de7568c43b0b43292761e"
 
 btoa-lite@^1.0.0:
   version "1.0.0"
@@ -2958,9 +2958,9 @@ java-properties@^0.2.9:
   version "0.2.10"
   resolved "https://registry.yarnpkg.com/java-properties/-/java-properties-0.2.10.tgz#2551560c25fa1ad94d998218178f233ad9b18f60"
 
-joi@^13.3.0:
-  version "13.3.0"
-  resolved "https://registry.yarnpkg.com/joi/-/joi-13.3.0.tgz#4defd4333b539c5d10e444ab44f5a5583480f17c"
+joi@^13.4.0:
+  version "13.4.0"
+  resolved "https://registry.yarnpkg.com/joi/-/joi-13.4.0.tgz#afc359ee3d8bc5f9b9ba6cdc31b46d44af14cecc"
   dependencies:
     hoek "5.x.x"
     isemail "3.x.x"
@@ -4562,9 +4562,9 @@ simple-get@^2.7.0:
     once "^1.3.1"
     simple-concat "^1.0.0"
 
-sinon@^5.0.10:
-  version "5.0.10"
-  resolved "https://registry.yarnpkg.com/sinon/-/sinon-5.0.10.tgz#a282b36a7475664c9f98719108e5546907129023"
+sinon@^5.1.0:
+  version "5.1.0"
+  resolved "https://registry.yarnpkg.com/sinon/-/sinon-5.1.0.tgz#65f463422978638fadf750c026719697feb0dca5"
   dependencies:
     "@sinonjs/formatio" "^2.0.0"
     diff "^3.5.0"
