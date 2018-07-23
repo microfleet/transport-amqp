@@ -31,7 +31,7 @@
   },
   "homepage": "https://github.com/microfleet/transport-amqp#readme",
   "devDependencies": {
-    "@makeomatic/deploy": "^6.1.2",
+    "@makeomatic/deploy": "^7.0.0",
     "babel-cli": "^6.26.0",
     "babel-eslint": "^8.2.3",
     "babel-plugin-istanbul": "^4.1.6",
