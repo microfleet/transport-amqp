@@ -56,11 +56,14 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization');
   const latency = require('../src/utils/latency');
 
+  const RABBITMQ_HOST = process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost';
+  const RABBITMQ_PORT = +(process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672);
+
   const configuration = {
     exchange: 'test-exchange',
     connection: {
-      host: process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost',
-      port: process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672,
+      host: RABBITMQ_HOST,
+      port: RABBITMQ_PORT,
     },
   };
 
@@ -499,6 +502,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
       const opts = {
         connection: {
+          ...configuration.connection,
           port: 5672,
           heartbeat: 2000,
         },
@@ -551,7 +555,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     const tracer = new MockTracer();
 
     before('init transport', () => {
-      this.proxy = new Proxy(9010, 5672, 'localhost');
+      this.proxy = new Proxy(9010, RABBITMQ_PORT, RABBITMQ_HOST);
       this.transport = new AMQPTransport({
         connection: {
           port: 9010,

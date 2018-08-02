@@ -2,14 +2,24 @@ version: '3'
 
 services:
   rabbitmq:
-    ports:
-      - "15672:15672"
-      - "4369:4369"
-      - "5672:5672"
-      - "25672:25672"
     expose:
       - "4369"
+      - "15672"
       - "5672"
       - "25672"
     image: makeomatic/rabbitmq:3.6.12
     hostname: rabbitmq
+
+  tester:
+    image: makeomatic/node:10.8.0-tester
+    container_name: tester
+    hostname: tester
+    links:
+      - rabbitmq
+    volumes:
+      - ${PWD}:/src
+    working_dir: /src
+    environment:
+      NODE_ENV: "test"
+      RABBITMQ_PORT_5672_TCP_ADDR: "rabbitmq"
+    command: tail -f /dev/null
