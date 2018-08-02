@@ -586,7 +586,19 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     it('reestablishing consumed queue', () => {
       const { transport } = this;
-      const publish = () => transport.publishAndWait('/', { foo: 'bar' }, { confirm: true });
+      const sample = { foo: 'bar' };
+      const publish = () => transport.publishAndWait('/', sample, { confirm: true });
+
+      let counter = 0;
+      const args = [];
+      transport.on('publish', (route, msg) => {
+        if (route === '/') {
+          args.push(msg);
+          counter += 1;
+        } else {
+          counter += 1;
+        }
+      });
 
       return transport
         .createConsumedQueue(router, ['/'])
@@ -599,7 +611,14 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         .spread((consumer, queue, establishConsumer) => Promise.join(
           transport.stopConsumedQueue(establishConsumer),
           Promise.fromCallback(next => queue.delete(next))
-        ));
+        ))
+        .finally(() => {
+          transport.removeAllListeners('publish');
+          assert.equal(counter, 6); // 3 requests, 3 responses
+          for (const msg of args) {
+            assert.deepStrictEqual(msg, sample);
+          }
+        });
     });
 
     it('should create consumed queue', (done) => {

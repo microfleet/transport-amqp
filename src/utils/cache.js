@@ -1,7 +1,7 @@
 const HLRU = require('hashlru');
 const hash = require('object-hash');
-const latency = require('./latency');
 const is = require('is');
+const latency = require('./latency');
 
 class Cache {
   constructor(size) {

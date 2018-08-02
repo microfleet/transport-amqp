@@ -44,9 +44,9 @@ module.exports.AmqpDLXError = Errors.helpers.generateClass('AmqpDLXError', {
           break;
 
         case 'expired':
-          message.push(`Expired from queue "${rejectionEntry.queue}" with routing keys ` +
-            `${JSON.stringify(rejectionEntry['routing-keys'])} ` +
-            `after ${rejectionEntry['original-expiration']}ms ${rejectionEntry.count} time(s)`);
+          message.push(`Expired from queue "${rejectionEntry.queue}" with routing keys `
+            + `${JSON.stringify(rejectionEntry['routing-keys'])} `
+            + `after ${rejectionEntry['original-expiration']}ms ${rejectionEntry.count} time(s)`);
           break;
 
         case 'maxlen':

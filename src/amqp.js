@@ -789,7 +789,8 @@ class AMQPTransport extends EventEmitter {
     const request = await this._amqp
       .publishAsync(exchange, queueOrRoute, message, publishOptions);
 
-    this.emit('publish', queueOrRoute, message);
+    // emit original message
+    this.emit('publish', queueOrRoute, _message);
 
     return request;
   }

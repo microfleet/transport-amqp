@@ -1,8 +1,8 @@
 {
   "plugins": [
-    "transform-strict-mode",
-    "transform-class-properties",
-    "transform-object-rest-spread"
+    "@babel/plugin-transform-strict-mode",
+    "@babel/plugin-proposal-class-properties",
+    ["@babel/plugin-proposal-object-rest-spread", { "useBuiltIns": true }]
   ],
   "env": {
     "test": {
