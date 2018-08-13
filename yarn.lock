@@ -2116,9 +2116,17 @@ fast-levenshtein@~2.0.4:
   version "2.0.6"
   resolved "https://registry.yarnpkg.com/fast-levenshtein/-/fast-levenshtein-2.0.6.tgz#3d8a5c66883a16a30ca8643e851f19baa7797917"
 
+fast-redact@^1.1.14:
+  version "1.1.14"
+  resolved "https://registry.yarnpkg.com/fast-redact/-/fast-redact-1.1.14.tgz#95e5a05c8046b9cd61a203266a4acb2ae635574f"
+
 fast-safe-stringify@^1.0.8, fast-safe-stringify@^1.2.3:
   version "1.2.3"
   resolved "https://registry.yarnpkg.com/fast-safe-stringify/-/fast-safe-stringify-1.2.3.tgz#9fe22c37fb2f7f86f06b8f004377dbf8f1ee7bc1"
+
+fast-safe-stringify@^2.0.4:
+  version "2.0.5"
+  resolved "https://registry.yarnpkg.com/fast-safe-stringify/-/fast-safe-stringify-2.0.5.tgz#cdb2d02d41329afbe67eff073598811d482609e3"
 
 figures@^2.0.0:
   version "2.0.0"
@@ -4025,6 +4033,10 @@ pino-std-serializers@^2.0.0:
   version "2.1.0"
   resolved "https://registry.yarnpkg.com/pino-std-serializers/-/pino-std-serializers-2.1.0.tgz#01953dcaecd5f43b331ecf2e312a49c9fd64851c"
 
+pino-std-serializers@^2.2.0:
+  version "2.2.0"
+  resolved "https://registry.yarnpkg.com/pino-std-serializers/-/pino-std-serializers-2.2.0.tgz#2c97a636dcbe6947a7be518f5d06b7804f5c48ae"
+
 pino@^4.17.3:
   version "4.17.3"
   resolved "https://registry.yarnpkg.com/pino/-/pino-4.17.3.tgz#3536ea36f6258356ba8891d18dbf1afed41fcf09"
@@ -4038,18 +4050,18 @@ pino@^4.17.3:
     quick-format-unescaped "^1.1.2"
     split2 "^2.2.0"
 
-pino@^4.17.6:
-  version "4.17.6"
-  resolved "https://registry.yarnpkg.com/pino/-/pino-4.17.6.tgz#8c237f3a29f4104f89321c25037deab6a7998fb4"
+pino@^5.0.0:
+  version "5.0.3"
+  resolved "https://registry.yarnpkg.com/pino/-/pino-5.0.3.tgz#c2556850c52ff69fd042adc1f91c7a96b0aa1b71"
   dependencies:
-    chalk "^2.4.1"
     fast-json-parse "^1.0.3"
-    fast-safe-stringify "^1.2.3"
+    fast-redact "^1.1.14"
+    fast-safe-stringify "^2.0.4"
     flatstr "^1.0.5"
-    pino-std-serializers "^2.0.0"
+    pino-std-serializers "^2.2.0"
     pump "^3.0.0"
-    quick-format-unescaped "^1.1.2"
-    split2 "^2.2.0"
+    quick-format-unescaped "^3.0.0"
+    sonic-boom "^0.6.0"
 
 pirates@^4.0.0:
   version "4.0.0"
@@ -4163,6 +4175,10 @@ quick-format-unescaped@^1.1.2:
   resolved "https://registry.yarnpkg.com/quick-format-unescaped/-/quick-format-unescaped-1.1.2.tgz#0ca581de3174becef25ac3c2e8956342381db698"
   dependencies:
     fast-safe-stringify "^1.0.8"
+
+quick-format-unescaped@^3.0.0:
+  version "3.0.0"
+  resolved "https://registry.yarnpkg.com/quick-format-unescaped/-/quick-format-unescaped-3.0.0.tgz#21e7fdc5b08b079ef71ed0728ed0725e58671e41"
 
 quick-lru@^1.0.0:
   version "1.1.0"
@@ -4628,6 +4644,12 @@ snapdragon@^0.8.1:
     source-map "^0.5.6"
     source-map-resolve "^0.5.0"
     use "^3.1.0"
+
+sonic-boom@^0.6.0:
+  version "0.6.0"
+  resolved "https://registry.yarnpkg.com/sonic-boom/-/sonic-boom-0.6.0.tgz#c1a6ef9444b0b83bcafeb48731e4b26254cca3d5"
+  dependencies:
+    flatstr "^1.0.5"
 
 source-map-resolve@^0.5.0:
   version "0.5.2"
