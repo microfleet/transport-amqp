@@ -47,7 +47,7 @@
     "eslint-config-makeomatic": "^3.0.0",
     "eslint-plugin-import": "^2.13.0",
     "eslint-plugin-mocha": "^5.1.0",
-    "eslint-plugin-promise": "^3.8.0",
+    "eslint-plugin-promise": "^4.0.0",
     "jaeger-client": "^3.11.0",
     "microtime": "^2.1.8",
     "mocha": "^5.2.0",
