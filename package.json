@@ -68,7 +68,7 @@
     "flatstr": "^1.0.8",
     "hashlru": "^2.2.1",
     "is": "^3.2.1",
-    "joi": "^13.5.2",
+    "joi": "^14.0.0",
     "json-stringify-safe": "^5.0.1",
     "lodash": "^4.17.10",
     "object-hash": "^1.3.0",
