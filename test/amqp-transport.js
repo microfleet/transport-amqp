@@ -55,6 +55,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   const { AmqpDLXError } = require('../src/utils/error');
   const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization');
   const latency = require('../src/utils/latency');
+  const { kReplyHeaders } = require('../src/constants');
+  console.log('kReplyHeaders', kReplyHeaders);
 
   const RABBITMQ_HOST = process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost';
   const RABBITMQ_PORT = +(process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672);
@@ -682,6 +684,81 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     after('close transport', () => {
       this.proxy.close();
       this.transport.close();
+    });
+  });
+
+  describe('properties features', function test() {
+    const tracer = new MockTracer();
+
+    before('init transport', () => {
+      this.proxy = new Proxy(9010, RABBITMQ_PORT, RABBITMQ_HOST);
+      this.transport = new AMQPTransport({
+        connection: {
+          port: 9010,
+          heartbeat: 2000,
+        },
+        debug: true,
+        exchange: 'test-direct',
+        exchangeArgs: {
+          autoDelete: false,
+          type: 'direct',
+        },
+        defaultQueueOpts: {
+          autoDelete: true,
+          exclusive: true,
+        },
+        tracer,
+      });
+
+      return this.transport.connect();
+    });
+
+    function router(message, headers, actions, next) {
+      switch (headers.routingKey) {
+        case '/':
+          assert.deepEqual(message, { foo: 'bar' });
+
+          // todo how could we set properties on responseHandler?
+          return next(null, { bar: 'baz' });
+        default:
+          throw new Error();
+      }
+    }
+
+    it('allows to set reply headers', async () => {
+      const { transport } = this;
+      const sample = { foo: 'bar' };
+
+      let counter = 0;
+      const args = [];
+      transport.on('publish', (route, msg) => {
+        if (route === '/') {
+          args.push(msg);
+          counter += 1;
+        } else {
+          counter += 1;
+        }
+      });
+
+      try {
+        const [, queue, establishConsumer] = await transport.createConsumedQueue(router, ['/']);
+
+        const response = await transport.publishAndWait('/', sample, { confirm: true });
+        console.log('RESPONSE', response);
+
+        await Promise.join(
+          transport.stopConsumedQueue(establishConsumer),
+          Promise.fromCallback(next => queue.delete(next))
+        );
+      } catch (e) {
+        throw e;
+      } finally {
+        transport.removeAllListeners('publish');
+        assert.equal(counter, 2); // 1 requests, 1 responses
+        for (const msg of args) {
+          assert.deepStrictEqual(msg, sample);
+        }
+      }
     });
   });
 
