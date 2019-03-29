@@ -856,6 +856,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         } catch (error) {
           // here I should expect headers
           assert.strictEqual('Error occured but at least you still have your headers', error.message);
+          assert.deepEqual({ 'x-custom-header': 'error-but-i-dont-care', timeout: 10000 }, error[kReplyHeaders])
 
           await Promise.join(
             transport.stopConsumedQueue(establishConsumer),

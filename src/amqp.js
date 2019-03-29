@@ -1223,11 +1223,17 @@ class AMQPTransport extends EventEmitter {
     }
 
     if (message.error) {
-      return future.reject(wrapError(message.error));
+      const error = wrapError(message.error);
+
+      Object.defineProperty(error, kReplyHeaders, {
+        value: headers,
+        enumerable: false,
+      });
+
+      return future.reject(error);
     }
 
     const response = buildResponse(message, properties);
-
     this.cache.set(future.cache, response);
 
     return future.resolve(adaptResponse(response, future.replyOptions));

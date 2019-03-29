@@ -110,7 +110,7 @@ const copyErrorData = [
 
 /**
  * Wraps response error
- * @param  {Error} error
+ * @param {Error} originalError
  * @returns {Error}
  */
 exports.wrapError = function wrapError(originalError) {
