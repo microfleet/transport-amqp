@@ -117,9 +117,6 @@ const initRoutingFn = (messageHandler, transport) => {
    * @returns {Promise<*>}
    */
   function responseHandler(raw, error, data) {
-    console.log('RAW', raw);
-    console.log('ERROR', error);
-    console.log('DATA', data);
     const { properties, span } = raw;
     return !properties.replyTo || !properties.correlationId
       ? transport.noop(error, data, span, raw)
@@ -159,6 +156,35 @@ const initRoutingFn = (messageHandler, transport) => {
     return messageHandler(message, properties, raw, responseHandler.bind(undefined, raw));
   };
 };
+
+/**
+ * @param {Object} response
+ * @oaram {Object} response.data
+ * @oaram {Object} response.headers
+ * @param {Object} replyOptions
+ * @param {boolean} replyOptions.simpleResponse
+ * @returns {Object}
+ */
+function adaptResponse(response, replyOptions) {
+  return replyOptions.simpleResponse === false ? response : response.data;
+}
+
+/**
+ * @param {mixed} message
+ * @param {Object} message.data
+ * @param {Object} message.error
+ * @param {Object} properties
+ * @param {Object} properties.headers
+ */
+function buildResponse(message, properties) {
+  const { headers } = properties;
+  const { data } = message;
+
+  return {
+    headers,
+    data,
+  };
+}
 
 /**
  * @class AMQPTransport
@@ -479,6 +505,7 @@ class AMQPTransport extends EventEmitter {
 
     const transport = this;
     const { config } = transport;
+
     const router = initRoutingFn(messageHandler, transport);
     const baseOpts = { router, neck: config.neck, queue: config.queue || '' };
     const queueOptions = merge(baseOpts, config.defaultQueueOpts, this._extraQueueOptions, options);
@@ -945,6 +972,12 @@ class AMQPTransport extends EventEmitter {
     return opts;
   }
 
+  _replyOptions(options = {}) {
+    const { simpleResponse } = options;
+
+    return defaults({ simpleResponse }, this._defaultOpts);
+  }
+
   /**
    * Reply to sender queue based on headers
    *
@@ -953,7 +986,7 @@ class AMQPTransport extends EventEmitter {
    * @param   {Span}   [span] - opentracing span
    * @param   {AMQPMessage} [raw] - raw message
    */
-  reply(properties, message, span, raw) {
+  async reply(properties, message, span, raw) {
     if (!properties.replyTo || !properties.correlationId) {
       const error = new ValidationError('replyTo and correlationId not found in properties', 400);
 
@@ -975,8 +1008,6 @@ class AMQPTransport extends EventEmitter {
     const options = {
       correlationId: properties.correlationId,
     };
-
-    console.log('reply properties', properties);
 
     if (properties[kReplyHeaders]) {
       options.headers = properties[kReplyHeaders];
@@ -1034,6 +1065,7 @@ class AMQPTransport extends EventEmitter {
   createMessageHandler(routing, message, options, publishMessage, span) {
     const replyTo = options.replyTo || this._replyTo;
     const time = process.hrtime();
+    const replyOptions = this._replyOptions(options);
 
     // ensure that reply queue exists before sending request
     if (typeof replyTo !== 'string') {
@@ -1050,7 +1082,7 @@ class AMQPTransport extends EventEmitter {
     // otherwise cachedResponse is always null
     const cachedResponse = this.cache.get(message, options.cache);
     if (cachedResponse !== null && typeof cachedResponse === 'object') {
-      return Promise.resolve(cachedResponse.value);
+      return Promise.resolve(adaptResponse(cachedResponse.value, replyOptions));
     }
 
     const { replyStorage } = this;
@@ -1068,6 +1100,7 @@ class AMQPTransport extends EventEmitter {
         routing,
         resolve,
         reject,
+        replyOptions,
         cache: cachedResponse,
         timer: null,
       });
@@ -1184,7 +1217,7 @@ class AMQPTransport extends EventEmitter {
 
     this.log.trace('response returned in %s', latency(future.time));
 
-    // if messag was dead-lettered - reject with an error
+    // if message was dead-lettered - reject with an error
     if (xDeath) {
       return future.reject(new AmqpDLXError(xDeath, message));
     }
@@ -1193,9 +1226,11 @@ class AMQPTransport extends EventEmitter {
       return future.reject(wrapError(message.error));
     }
 
-    const response = message.data;
+    const response = buildResponse(message, properties);
+
     this.cache.set(future.cache, response);
-    return future.resolve(response);
+
+    return future.resolve(adaptResponse(response, future.replyOptions));
   }
 
   /**

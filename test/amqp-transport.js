@@ -56,7 +56,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
   const { jsonSerializer, jsonDeserializer } = require('../src/utils/serialization');
   const latency = require('../src/utils/latency');
   const { kReplyHeaders } = require('../src/constants');
-  console.log('kReplyHeaders', kReplyHeaders);
 
   const RABBITMQ_HOST = process.env.RABBITMQ_PORT_5672_TCP_ADDR || 'localhost';
   const RABBITMQ_PORT = +(process.env.RABBITMQ_PORT_5672_TCP_PORT || 5672);
@@ -286,6 +285,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
       return Promise.all(promises).spread((initial, cached, nonCached) => {
         const { toMiliseconds } = latency;
+
         assert.equal(toMiliseconds(initial.time), toMiliseconds(cached.time));
         assert(toMiliseconds(initial.time) < toMiliseconds(nonCached.time));
       });
@@ -687,7 +687,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     });
   });
 
-  describe('properties features', function test() {
+  describe('response headers', function test() {
     const tracer = new MockTracer();
 
     before('init transport', () => {
@@ -713,26 +713,39 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       return this.transport.connect();
     });
 
-    function router(message, headers, actions, next) {
+    function router(message, headers, raw, next) {
+      const error = new Error('Error occured but at least you still have your headers');
+
       switch (headers.routingKey) {
-        case '/':
+        case '/include-headers':
           assert.deepEqual(message, { foo: 'bar' });
 
-          // todo how could we set properties on responseHandler?
           return next(null, { bar: 'baz' });
+        case '/return-custom-header':
+          assert.deepEqual(message, { foo: 'bar' });
+
+          raw.properties[kReplyHeaders] = { 'x-custom-header': 'custom-header-value' };
+
+          return next(null, { bar: 'baz' });
+        case '/return-headers-on-error':
+          assert.deepEqual(message, { foo: 'bar' });
+
+          raw.properties[kReplyHeaders] = { 'x-custom-header': 'error-but-i-dont-care' };
+
+          return next(error, null);
         default:
           throw new Error();
       }
     }
 
-    it('allows to set reply headers', async () => {
+    it('is able to return detailed response with headers', async () => {
       const { transport } = this;
       const sample = { foo: 'bar' };
 
       let counter = 0;
       const args = [];
       transport.on('publish', (route, msg) => {
-        if (route === '/') {
+        if (route === '/include-headers') {
           args.push(msg);
           counter += 1;
         } else {
@@ -741,10 +754,20 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
 
       try {
-        const [, queue, establishConsumer] = await transport.createConsumedQueue(router, ['/']);
+        const [, queue, establishConsumer] = await transport.createConsumedQueue(router, ['/include-headers']);
 
-        const response = await transport.publishAndWait('/', sample, { confirm: true });
-        console.log('RESPONSE', response);
+        const response = await transport.publishAndWait('/include-headers', sample, {
+          confirm: true,
+          simpleResponse: false,
+        });
+
+        assert.deepEqual(
+          response,
+          {
+            data: { bar: 'baz' },
+            headers: { timeout: 10000 },
+          }
+        );
 
         await Promise.join(
           transport.stopConsumedQueue(establishConsumer),
@@ -760,11 +783,100 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         }
       }
     });
-  });
 
-  after('cleanup', () => (
-    Promise.map(['amqp', 'amqp_consumer'], name => (
-      this[name] && this[name].close()
-    ))
-  ));
+    it('is able to set custom reply headers', async () => {
+      const { transport } = this;
+      const sample = { foo: 'bar' };
+
+      let counter = 0;
+      const args = [];
+      transport.on('publish', (route, msg) => {
+        if (route === '/return-custom-header') {
+          args.push(msg);
+          counter += 1;
+        } else {
+          counter += 1;
+        }
+      });
+
+      try {
+        const [, queue, establishConsumer] = await transport.createConsumedQueue(router, ['/return-custom-header']);
+
+        const response = await transport.publishAndWait('/return-custom-header', sample, {
+          confirm: true,
+          simpleResponse: false,
+        });
+
+        assert.deepEqual(
+          response,
+          {
+            data: { bar: 'baz' },
+            headers: { 'x-custom-header': 'custom-header-value', timeout: 10000 },
+          }
+        );
+
+        await Promise.join(
+          transport.stopConsumedQueue(establishConsumer),
+          Promise.fromCallback(next => queue.delete(next))
+        );
+      } catch (e) {
+        throw e;
+      } finally {
+        transport.removeAllListeners('publish');
+        assert.equal(counter, 2); // 1 requests, 1 responses
+        for (const msg of args) {
+          assert.deepStrictEqual(msg, sample);
+        }
+      }
+    });
+
+    it('is able to return headers with error response', async () => {
+      const { transport } = this;
+      const sample = { foo: 'bar' };
+
+      let counter = 0;
+      const args = [];
+      transport.on('publish', (route, msg) => {
+        if (route === '/return-headers-on-error') {
+          args.push(msg);
+          counter += 1;
+        } else {
+          counter += 1;
+        }
+      });
+
+      try {
+        const [, queue, establishConsumer] = await transport.createConsumedQueue(router, ['/return-headers-on-error']);
+
+        try {
+          await transport.publishAndWait('/return-headers-on-error', sample, {
+            confirm: true,
+            simpleResponse: false,
+          });
+        } catch (error) {
+          // here I should expect headers
+          assert.strictEqual('Error occured but at least you still have your headers', error);
+
+          await Promise.join(
+            transport.stopConsumedQueue(establishConsumer),
+            Promise.fromCallback(next => queue.delete(next))
+          );
+        }
+      } catch (e) {
+        throw e;
+      } finally {
+        transport.removeAllListeners('publish');
+        assert.equal(counter, 2); // 1 requests, 1 responses
+        for (const msg of args) {
+          assert.deepStrictEqual(msg, sample);
+        }
+      }
+    });
+
+    after('cleanup', () => (
+      Promise.map(['amqp', 'amqp_consumer'], name => (
+        this[name] && this[name].close()
+      ))
+    ));
+  });
 });
