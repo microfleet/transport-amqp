@@ -973,9 +973,9 @@ class AMQPTransport extends EventEmitter {
   }
 
   _replyOptions(options = {}) {
-    const { simpleResponse } = options;
-
-    return defaults({ simpleResponse }, this._defaultOpts);
+    return {
+      simpleResponse: options.simpleResponse === undefined ? this._defaultOpts.simpleResponse : options.simpleResponse,
+    };
   }
 
   /**
@@ -986,7 +986,7 @@ class AMQPTransport extends EventEmitter {
    * @param   {Span}   [span] - opentracing span
    * @param   {AMQPMessage} [raw] - raw message
    */
-  async reply(properties, message, span, raw) {
+  reply(properties, message, span, raw) {
     if (!properties.replyTo || !properties.correlationId) {
       const error = new ValidationError('replyTo and correlationId not found in properties', 400);
 
