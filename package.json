@@ -49,7 +49,7 @@
     "eslint-plugin-mocha": "^5.2.0",
     "eslint-plugin-promise": "^4.0.1",
     "jaeger-client": "^3.13.0",
-    "microtime": "^2.1.8",
+    "microtime": "^3.0.0",
     "mocha": "^5.2.0",
     "nyc": "^13.1.0",
     "sinon": "^7.2.2",
