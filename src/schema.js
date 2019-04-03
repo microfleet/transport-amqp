@@ -262,6 +262,9 @@ module.exports = Joi
 
         headers: Joi.object()
           .default(),
+
+        simpleResponse: Joi.boolean()
+          .default(true, 'whether to return only response data or include headers etc.'),
       })
       .description('default options when publishing messages')
       .default(),

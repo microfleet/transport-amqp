@@ -39,6 +39,7 @@ const latency = require('./utils/latency');
 const loggerUtils = require('./loggers');
 const generateErrorMessage = require('./utils/error');
 const helpers = require('./helpers');
+const { kReplyHeaders } = require('./constants');
 
 // serialization functions
 const { jsonSerializer, jsonDeserializer } = require('./utils/serialization');
@@ -112,7 +113,7 @@ const initRoutingFn = (messageHandler, transport) => {
    * Response Handler Function. Sends Reply or Noop log.
    * @param  {AMQPMessage} raw - Raw AMQP Message Structure
    * @param  {Error} error - Error if it happened.
-   * @param  {Mixed} data - Response data.
+   * @param  {mixed} data - Response data.
    * @returns {Promise<*>}
    */
   function responseHandler(raw, error, data) {
@@ -124,7 +125,7 @@ const initRoutingFn = (messageHandler, transport) => {
 
   /**
    * Initiates consumer message handler.
-   * @param  {Mixed} message - Data passed from the publisher.
+   * @param  {mixed} message - Data passed from the publisher.
    * @param  {Object} properties - AMQP Message properties.
    * @param  {Object} raw - Original AMQP message.
    * @param  {Function} [raw.ack] - Acknowledge if nack is `true`.
@@ -155,6 +156,35 @@ const initRoutingFn = (messageHandler, transport) => {
     return messageHandler(message, properties, raw, responseHandler.bind(undefined, raw));
   };
 };
+
+/**
+ * @param {Object} response
+ * @oaram {Object} response.data
+ * @oaram {Object} response.headers
+ * @param {Object} replyOptions
+ * @param {boolean} replyOptions.simpleResponse
+ * @returns {Object}
+ */
+function adaptResponse(response, replyOptions) {
+  return replyOptions.simpleResponse === false ? response : response.data;
+}
+
+/**
+ * @param {mixed} message
+ * @param {Object} message.data
+ * @param {Object} message.error
+ * @param {Object} properties
+ * @param {Object} properties.headers
+ */
+function buildResponse(message, properties) {
+  const { headers } = properties;
+  const { data } = message;
+
+  return {
+    headers,
+    data,
+  };
+}
 
 /**
  * @class AMQPTransport
@@ -267,8 +297,8 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Noop function with empty correlation id and reply to data
-   * @param  {Error} err
-   * @param  {Mixed} data
+   * @param  {Error} error
+   * @param  {mixed} data
    * @param  {Span}  [span]
    * @param  {AMQPMessage} [raw]
    */
@@ -319,10 +349,10 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
-   * Create queue with specfied settings in current connection
+   * Create queue with specified settings in current connection
    * also emit new event on message in queue
    *
-   * @param {Object}  _params   - queue parameters
+   * @param {Object}  opts   - queue parameters
    */
   createQueue(opts) {
     const { _amqp: amqp, log, _onConsume } = this;
@@ -475,6 +505,7 @@ class AMQPTransport extends EventEmitter {
 
     const transport = this;
     const { config } = transport;
+
     const router = initRoutingFn(messageHandler, transport);
     const baseOpts = { router, neck: config.neck, queue: config.queue || '' };
     const queueOptions = merge(baseOpts, config.defaultQueueOpts, this._extraQueueOptions, options);
@@ -653,7 +684,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {string} exchange - Exchange to bind to.
    * @param  {Queue} queue - Declared queue object.
    * @param  {string} route - Routing key.
-   * @param  {boolean} [headers=false] - if exchange has `headers` type.
+   * @param  {boolean} [headerName=false] - if exchange has `headers` type.
    * @returns {Promise<*>}
    */
   bindRoute(exchange, queue, route, headerName = false) {
@@ -688,9 +719,9 @@ class AMQPTransport extends EventEmitter {
   /**
    * Bind specified queue to exchange
    *
-   * @param {object} queue   - queue instance created by .createQueue
-   * @param {string} _routes - messages sent to this route will be delivered to queue
-   * @param {object} params  - exchange parameters:
+   * @param {object} queue     - queue instance created by .createQueue
+   * @param {string} _routes   - messages sent to this route will be delivered to queue
+   * @param {object} [opts={}] - exchange parameters:
    *                 https://github.com/dropbox/amqp-coffee#connectionexchangeexchangeargscallback
    */
   bindExchange(queue, _routes, opts = {}) {
@@ -719,8 +750,9 @@ class AMQPTransport extends EventEmitter {
   /**
    * Binds multiple routing keys to headers exchange.
    * @param  {Object} queue
-   * @param  {Mixed} _routes
+   * @param  {mixed} _routes
    * @param  {Object} opts
+   * @param  {boolean} [headerName=false] - if exchange has `headers` type
    * @returns {Promise<*>}
    */
   bindHeadersExchange(queue, _routes, opts, headerName = true) {
@@ -776,7 +808,7 @@ class AMQPTransport extends EventEmitter {
    * Low-level publishing method
    * @param  {string} exchange
    * @param  {string} queueOrRoute
-   * @param  {mixed} message
+   * @param  {mixed} _message
    * @param  {Object} options
    * @returns {Promise<*>}
    */
@@ -799,8 +831,9 @@ class AMQPTransport extends EventEmitter {
    * Send message to specified route
    *
    * @param   {String} route   - destination route
-   * @param   {Mixed}  message - message to send - will be coerced to string via stringify
+   * @param   {mixed}  message - message to send - will be coerced to string via stringify
    * @param   {Object} options - additional options
+   * @param   {Span}   parentSpan
    */
   publish(route, message, options = {}, parentSpan) {
     const span = this.tracer.startSpan(`publish:${route}`, {
@@ -829,7 +862,7 @@ class AMQPTransport extends EventEmitter {
    * Send message to specified queue directly
    *
    * @param {String} queue     - destination queue
-   * @param {Mixed}  message   - message to send
+   * @param {mixed}  message   - message to send
    * @param {Object} [options] - additional options
    * @param {opentracing.Span} [parentSpan] - Existing span.
    */
@@ -859,8 +892,9 @@ class AMQPTransport extends EventEmitter {
   /**
    * Sends a message and then awaits for response
    * @param  {String} route
-   * @param  {Mixed}  message
+   * @param  {mixed}  message
    * @param  {Object} options
+   * @param  {Span}   parentSpan
    * @return {Promise}
    */
   publishAndWait(route, message, options = {}, parentSpan) {
@@ -887,8 +921,9 @@ class AMQPTransport extends EventEmitter {
    * Send message to specified queue directly and wait for answer
    *
    * @param {string} queue        destination queue
-   * @param {any} message         message to send
+   * @param {any}    message      message to send
    * @param {object} options      additional options
+   * @param {Span}   parentSpan
    */
   sendAndWait(queue, message, options = {}, parentSpan) {
     // opentracing instrumentation
@@ -937,13 +972,19 @@ class AMQPTransport extends EventEmitter {
     return opts;
   }
 
+  _replyOptions(options = {}) {
+    return {
+      simpleResponse: options.simpleResponse === undefined ? this._defaultOpts.simpleResponse : options.simpleResponse,
+    };
+  }
+
   /**
    * Reply to sender queue based on headers
    *
-   * @param   {Object} headers - incoming message headers
-   * @param   {Mixed}  message - message to send
-   * @param   {Span}   [span] - opentracing span.
-   * @param   {AMQPMessage} [raw] - raw message.
+   * @param   {Object} properties - incoming message headers
+   * @param   {mixed}  message - message to send
+   * @param   {Span}   [span] - opentracing span
+   * @param   {AMQPMessage} [raw] - raw message
    */
   reply(properties, message, span, raw) {
     if (!properties.replyTo || !properties.correlationId) {
@@ -964,7 +1005,15 @@ class AMQPTransport extends EventEmitter {
       return Promise.reject(error);
     }
 
-    let promise = this.send(properties.replyTo, message, { correlationId: properties.correlationId }, span);
+    const options = {
+      correlationId: properties.correlationId,
+    };
+
+    if (properties[kReplyHeaders]) {
+      options.headers = properties[kReplyHeaders];
+    }
+
+    let promise = this.send(properties.replyTo, message, options, span);
 
     if (raw !== undefined) {
       promise = promise
@@ -1006,13 +1055,17 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Creates response message handler and sets timeout on the response
-   * @param  {Object} options
-   * @param  {String} errorMessage
+   * @param  {String}   routing
+   * @param  {Object}   options
+   * @param  {String}   message
+   * @param  {Function} publishMessage
+   * @param  {Span}     span - opentracing span
    * @return {Promise}
    */
   createMessageHandler(routing, message, options, publishMessage, span) {
     const replyTo = options.replyTo || this._replyTo;
     const time = process.hrtime();
+    const replyOptions = this._replyOptions(options);
 
     // ensure that reply queue exists before sending request
     if (typeof replyTo !== 'string') {
@@ -1029,7 +1082,7 @@ class AMQPTransport extends EventEmitter {
     // otherwise cachedResponse is always null
     const cachedResponse = this.cache.get(message, options.cache);
     if (cachedResponse !== null && typeof cachedResponse === 'object') {
-      return Promise.resolve(cachedResponse.value);
+      return Promise.resolve(adaptResponse(cachedResponse.value, replyOptions));
     }
 
     const { replyStorage } = this;
@@ -1047,6 +1100,7 @@ class AMQPTransport extends EventEmitter {
         routing,
         resolve,
         reject,
+        replyOptions,
         cache: cachedResponse,
         timer: null,
       });
@@ -1122,13 +1176,12 @@ class AMQPTransport extends EventEmitter {
       //  and everything else from amqp-coffee
       setImmediate(router, message, props, incoming);
     };
-  }
+  };
 
   /**
    * Distributes messages from a private queue
-   * @param  {Mixed}  message
+   * @param  {mixed}  message
    * @param  {Object} properties
-   * @param  {Object} raw
    */
   _privateMessageRouter(message, properties/* , raw */) { // if private queue has nack set - we must ack msg
     const { correlationId, replyTo, headers } = properties;
@@ -1164,23 +1217,33 @@ class AMQPTransport extends EventEmitter {
 
     this.log.trace('response returned in %s', latency(future.time));
 
-    // if messag was dead-lettered - reject with an error
+    // if message was dead-lettered - reject with an error
     if (xDeath) {
       return future.reject(new AmqpDLXError(xDeath, message));
     }
 
     if (message.error) {
-      return future.reject(wrapError(message.error));
+      const error = wrapError(message.error);
+
+      Object.defineProperty(error, kReplyHeaders, {
+        value: headers,
+        enumerable: false,
+      });
+
+      return future.reject(error);
     }
 
-    const response = message.data;
+    const response = buildResponse(message, properties);
     this.cache.set(future.cache, response);
-    return future.resolve(response);
+
+    return future.resolve(adaptResponse(response, future.replyOptions));
   }
 
   /**
    * Parses AMQP message
    * @param  {Buffer} _data
+   * @param  {String} [contentType='application/json']
+   * @param  {String} [contentEncoding='plain']
    * @return {Object}
    */
   async _parseInput(_data, contentType = 'application/json', contentEncoding = 'plain') {
@@ -1213,11 +1276,12 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Handle 406 Error.
-   * @param  {Error} err - 406 Conflict Error.
+   * @param  {Object} params - exchange params
+   * @param  {Error}  err    - 406 Conflict Error.
    */
   _on406 = (params, err) => {
     this.log.warn({ params }, '[406] error declaring exchange/queue:', err.replyText);
-  }
+  };
 
   /**
    * 'ready' event from amqp-coffee lib, perform queue recreation here
