@@ -11,7 +11,7 @@ services:
     hostname: rabbitmq
 
   tester:
-    image: makeomatic/node:10.8.0-tester
+    image: makeomatic/node:10.16.0-tester
     container_name: tester
     hostname: tester
     links:

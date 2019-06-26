@@ -28,7 +28,7 @@ const pick = require('lodash/pick');
 const set = require('lodash/set');
 
 // local deps
-const Joi = require('joi');
+const Joi = require('@hapi/joi');
 const schema = require('./schema');
 const pkg = require('../package.json');
 const AMQP = require('./utils/transport');

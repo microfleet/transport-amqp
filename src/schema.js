@@ -1,4 +1,4 @@
-const baseJoi = require('joi');
+const baseJoi = require('@hapi/joi');
 const is = require('is');
 const recoverySchema = require('./utils/recovery').schema;
 
