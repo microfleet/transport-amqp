@@ -168,6 +168,19 @@ AMQPTransport.connect(opts).then((amqp) => {
 });
 ```
 
+#### Graceful shutdown
+If the graceful shutdown of your service is needed, to stop receiving incoming messages but continue processing, call `stopConsumers()`.
+This method closes all consumers but leaves the transport connection active. You can process all incoming messages and securely close connections.
+AMQPTransport.connect(options, router).then((amqp) => {
+  service.on('close', async () => {
+    await amqp.stopConsumers();
+    // do everything you need
+    // ..
+    await amqp.close();
+  })
+});
+
+```
 
 ## License
 [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fmicrofleet%2Ftransport-amqp.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fmicrofleet%2Ftransport-amqp?ref=badge_large)

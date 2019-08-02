@@ -375,7 +375,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       return Promise.join(consumer, publisher, (multi, amqp) => {
         this.multi = multi;
         this.publisher = amqp;
-
         this.multi.on('pre', preCount);
         this.multi.on('after', postCount);
       });
@@ -552,6 +551,76 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       this.transport.close();
     });
   });
+
+  describe('Consumers externally available', function suite() {
+    before('init transport', () => {
+      this.proxy = new Proxy(9010, RABBITMQ_PORT, RABBITMQ_HOST);
+      this.transport = new AMQPTransport({
+        connection: {
+          port: 9010,
+          heartbeat: 2000,
+        },
+        debug: true,
+        exchange: 'test-direct',
+        exchangeArgs: {
+          autoDelete: false,
+          type: 'direct',
+        },
+        defaultQueueOpts: {
+          autoDelete: true,
+          exclusive: true,
+        },
+      });
+
+      return this.transport.connect()
+        .tap((amqp) => {
+          sinon.spy(amqp, '_unregisterConsumer');
+          sinon.spy(amqp, '_boundRegisterConsumer');
+          sinon.spy(amqp, 'stopConsumers');
+        });
+    });
+
+    function router(message, headers, actions, next) {
+      switch (headers.routingKey) {
+        case '/':
+          // #3 all right, try answer
+          assert.deepEqual(message, { foo: 'bar' });
+          return next(null, { bar: 'baz' });
+        default:
+          throw new Error();
+      }
+    }
+
+
+    it('`consumers` map filled', () => {
+      const { transport } = this;
+
+      return transport
+        .createConsumedQueue(router, ['/'])
+        .tap(async () => {
+          const { _boundRegisterConsumer, _unregisterConsumer } = transport;
+          const { consumers } = transport;
+
+          assert.strictEqual(consumers.size, 1);
+          assert.equal(_boundRegisterConsumer.called, true);
+
+          await transport.stopConsumers();
+
+          assert.equal(consumers.size, 0);
+          assert.equal(_unregisterConsumer.called, true);
+        });
+    });
+
+    after('close transport', async () => {
+      const { transport } = this;
+      const closeConsCall = transport.stopConsumers;
+
+      await this.proxy.close();
+      await transport.close();
+
+      assert.equal(closeConsCall.called, true);
+    });
+  })
 
   describe('consumed queue', function test() {
     const tracer = new MockTracer();

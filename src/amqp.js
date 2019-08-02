@@ -237,6 +237,8 @@ class AMQPTransport extends EventEmitter {
     this._consumers = new WeakMap();
     this._queues = new WeakMap();
     this._boundEmit = this.emit.bind(this);
+    this.consumers = new Map();
+    this._boundRegisterConsumer = this._registerConsumer.bind(this);
 
     // Form app id string for debugging
     this._appID = {
@@ -322,6 +324,26 @@ class AMQPTransport extends EventEmitter {
     }
   }
 
+  /**
+   * Stops consumers and closes transport
+   */
+  async _close() {
+    const { _amqp: amqp } = this;
+
+    await this.stopConsumers();
+
+    try {
+      await new Promise((resolve, reject) => {
+        amqp.once('close', resolve);
+        amqp.once('error', reject);
+        amqp.close();
+      });
+    } finally {
+      this._amqp = null;
+      amqp.removeAllListeners();
+    }
+  }
+
   close() {
     const { _amqp: amqp } = this;
     if (amqp) {
@@ -329,15 +351,7 @@ class AMQPTransport extends EventEmitter {
         case 'opening':
         case 'open':
         case 'reconnecting':
-          return new Promise((resolve, reject) => {
-            amqp.once('close', resolve);
-            amqp.once('error', reject);
-            amqp.close();
-          }).finally(() => {
-            this._amqp = null;
-            amqp.removeAllListeners();
-          });
-
+          return this._close();
         default:
           this._amqp = null;
           return Promise.resolve();
@@ -631,7 +645,7 @@ class AMQPTransport extends EventEmitter {
 
           // emit event that we consumer & queue is ready
           transport.log.info('[consumed-queue-reconnected] %s - %s', queue.queueOptions.queue, consumer.consumerTag);
-          transport.emit('consumed-queue-reconnected', consumer, queue);
+          transport.emit('consumed-queue-reconnected', consumer, queue, establishConsumer);
 
           return [consumer, queue, establishConsumer];
         })
@@ -648,6 +662,15 @@ class AMQPTransport extends EventEmitter {
     return establishConsumer().tap(() => {
       transport.log.debug('bound `ready` to establishConsumer for', listen, queueOptions.queue);
       transport.on('ready', establishConsumer);
+    });
+  }
+
+  /**
+   * Stops current running consumers
+   */
+  stopConsumers() {
+    return Promise.map(this.consumers.values(), (bindFn) => {
+      return this.stopConsumedQueue(bindFn);
     });
   }
 
@@ -1275,6 +1298,24 @@ class AMQPTransport extends EventEmitter {
   }
 
   /**
+   * Registers consumers for further access
+   * @param {consumer} consumer
+   * @param {queue} queue
+   * @param {establishConsumer fn} bindFn
+   */
+  _registerConsumer(consumer, queue, bindFn) {
+    this.consumers.set(consumer, bindFn);
+  }
+
+  /**
+   * Removes binding when closeConsumer helper called
+   * @param {*} consumer
+   */
+  _unregisterConsumer(consumer) {
+    this.consumers.delete(consumer);
+  }
+
+  /**
    * Handle 406 Error.
    * @param  {Object} params - exchange params
    * @param  {Error}  err    - 406 Conflict Error.
@@ -1299,6 +1340,8 @@ class AMQPTransport extends EventEmitter {
       this.createPrivateQueue();
     }
 
+    this.on('consumed-queue-reconnected', this._boundRegisterConsumer);
+    this.on('consumer-close', this._unregisterConsumer);
     // re-emit ready
     this.emit('ready');
   };
@@ -1309,7 +1352,8 @@ class AMQPTransport extends EventEmitter {
   _onClose = (err) => {
     // emit connect event through log
     this.log.error('connection is closed. Had an error:', err || '<n/a>');
-
+    this.removeListener('consumed-queue-reconnected', this._boundRegisterConsumer);
+    this.removeListener('consumer-close', this._unregisterConsumer);
     // re-emit close event
     this.emit('close', err);
   };

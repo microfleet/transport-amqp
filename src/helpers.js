@@ -92,6 +92,7 @@ exports.closeConsumer = function closeConsumer(consumer) {
   consumer.removeAllListeners();
   consumer.on('error', noop);
 
+  this._boundEmit('consumer-close', consumer);
   // close channel
   return Promise
     .fromCallback((done) => {
