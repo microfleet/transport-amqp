@@ -2,16 +2,11 @@ version: '3'
 
 services:
   rabbitmq:
-    expose:
-      - "4369"
-      - "15672"
-      - "5672"
-      - "25672"
-    image: makeomatic/rabbitmq:3.6.12
+    image: rabbitmq:3.7-alpine
     hostname: rabbitmq
 
   tester:
-    image: makeomatic/node:10.16.0-tester
+    image: makeomatic/node:10.16.3-tester
     container_name: tester
     hostname: tester
     links:
@@ -22,4 +17,5 @@ services:
     environment:
       NODE_ENV: "test"
       RABBITMQ_PORT_5672_TCP_ADDR: "rabbitmq"
+      DEBUG: "proxy"
     command: tail -f /dev/null

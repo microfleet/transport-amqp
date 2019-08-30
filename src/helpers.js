@@ -1,5 +1,4 @@
 const Promise = require('bluebird');
-const noop = require('lodash/noop');
 const defaults = require('lodash/defaults');
 const is = require('is');
 const omit = require('lodash/omit');
@@ -44,13 +43,13 @@ exports = module.exports = (AMQPTransport) => {
   AMQPTransport.connect = function connect(config, _messageHandler, _opts = {}) {
     return AMQPTransport
       .create(config, _messageHandler)
-      .spread((amqp, messageHandler) => {
+      .spread(async (amqp, messageHandler) => {
         // do not init queues
-        if (is.fn(messageHandler) === false && !amqp.config.listen) {
-          return amqp;
+        if (is.fn(messageHandler) !== false || amqp.config.listen) {
+          await amqp.createConsumedQueue(messageHandler, amqp.config.listen, _opts);
         }
 
-        return amqp.createConsumedQueue(messageHandler, amqp.config.listen, _opts).return(amqp);
+        return amqp;
       });
   };
 
@@ -65,41 +64,28 @@ exports = module.exports = (AMQPTransport) => {
   AMQPTransport.multiConnect = function multiConnect(config, _messageHandler, opts = []) {
     return AMQPTransport
       .create(config, _messageHandler)
-      .spread((amqp, messageHandler) => {
+      .spread(async (amqp, messageHandler) => {
         // do not init queues
         if (is.fn(messageHandler) === false && !amqp.config.listen) {
           return amqp;
         }
 
-        return Promise
-          .resolve(amqp.config.listen)
-          .map((route, idx) => {
-            const queueOpts = opts[idx] || {};
-            return amqp.createConsumedQueue(messageHandler, [route], defaults(queueOpts, {
-              queue: config.queue ? `${config.queue}-${route.replace(/[#*]/g, '.')}` : config.queue,
-            }));
-          })
-          .return(amqp);
+        await Promise.map(amqp.config.listen, (route, idx) => {
+          const queueOpts = opts[idx] || Object.create(null);
+          const queueName = config.queue
+            ? `${config.queue}-${route.replace(/[#*]/g, '.')}`
+            : config.queue;
+
+          const consumedQueueOpts = defaults(queueOpts, {
+            queue: queueName,
+          });
+
+          return amqp.createConsumedQueue(messageHandler, [route], consumedQueueOpts);
+        });
+
+        return amqp;
       });
   };
-};
-
-/**
- * Utility function to close consumer and forget about it
- */
-exports.closeConsumer = function closeConsumer(consumer) {
-  this.log.warn('closing consumer', consumer.consumerTag);
-  consumer.removeAllListeners();
-  consumer.on('error', noop);
-
-  // close channel
-  return Promise
-    .fromCallback((done) => {
-      consumer.cancel(done);
-    })
-    .tap(() => this.log.info('closed consumer', consumer.consumerTag))
-    .timeout(5000)
-    .catch(Promise.TimeoutError, noop);
 };
 
 // error data that is going to be copied
@@ -121,7 +107,6 @@ exports.wrapError = function wrapError(originalError) {
   // this only happens in case of .toJSON on error object
   const error = new MSError(originalError.message);
 
-  // eslint-disable-next-line no-restricted-syntax
   for (const fieldName of copyErrorData) {
     const mixedData = originalError[fieldName];
     if (mixedData !== undefined && mixedData !== null) {

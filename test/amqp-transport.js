@@ -1,5 +1,3 @@
-/* eslint-disable no-console, max-len, promise/always-return */
-
 const Promise = require('bluebird');
 const Proxy = require('@microfleet/amqp-coffee/test/proxy').route;
 const ld = require('lodash');
@@ -134,30 +132,24 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     assert.throws(createTransport, 'ValidationError');
   });
 
-  it('is able to connect to rabbitmq', () => {
+  it('is able to connect to rabbitmq', async () => {
     const amqp = this.amqp = new AMQPTransport(configuration);
-    return amqp.connect()
-      .then(() => {
-        assert.equal(amqp._amqp.state, 'open');
-      });
+    await amqp.connect();
+    assert.equal(amqp._amqp.state, 'open');
   });
 
-  it('is able to disconnect', () => (
-    this.amqp.close().then(() => {
-      assert.equal(this.amqp._amqp, null);
-    })
-  ));
+  it('is able to disconnect', async () => {
+    await this.amqp.close();
+    assert.equal(this.amqp._amqp, null);
+  });
 
-  it('is able to connect via helper function', () => (
-    AMQPTransport
-      .connect(configuration)
-      .then((amqp) => {
-        assert.equal(amqp._amqp.state, 'open');
-        this.amqp = amqp;
-      })
-  ));
+  it('is able to connect via helper function', async () => {
+    const amqp = await AMQPTransport.connect(configuration);
+    assert.equal(amqp._amqp.state, 'open');
+    this.amqp = amqp;
+  });
 
-  it('is able to consume routes', () => {
+  it('is able to consume routes', async () => {
     const opts = {
       cache: 100,
       exchange: configuration.exchange,
@@ -166,52 +158,52 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       connection: configuration.connection,
     };
 
-    return AMQPTransport
-      .connect(opts, function listener(message, headers, actions, callback) {
-        callback(null, {
-          resp: typeof message === 'object' ? message : `${message}-response`,
-          time: process.hrtime(),
-        });
-      })
-      .then((amqp) => {
-        assert.equal(amqp._amqp.state, 'open');
-        this.amqp_consumer = amqp;
+    const amqp = await AMQPTransport.connect(opts, (message, headers, actions, callback) => {
+      callback(null, {
+        resp: typeof message === 'object' ? message : `${message}-response`,
+        time: process.hrtime(),
       });
+    });
+
+    assert.equal(amqp._amqp.state, 'open');
+    this.amqp_consumer = amqp;
   });
 
-  it('is able to publish to route consumer', () => (
-    this.amqp
-      .publishAndWait('test.default', 'test-message')
-      .then((response) => {
-        assert.equal(response.resp, 'test-message-response');
-      })
+  after('cleanup', async () => (
+    Promise.map(['amqp', 'amqp_consumer'], (name) => (
+      this[name] && this[name].close()
+    ))
   ));
 
-  it('is able to publish to route consumer:2', () => (
-    this.amqp
-      .publishAndWait('test.default', 'test-message')
-      .then((response) => {
-        assert.equal(response.resp, 'test-message-response');
-      })
-  ));
+  it('is able to publish to route consumer', async () => {
+    const response = await this.amqp
+      .publishAndWait('test.default', 'test-message');
 
-  it('is able to publish to route consumer:2', () => (
-    this.amqp
-      .publishAndWait('test.default', 'test-message')
-      .then((response) => {
-        assert.equal(response.resp, 'test-message-response');
-      })
-  ));
+    assert.equal(response.resp, 'test-message-response');
+  });
 
-  it('is able to send messages directly to a queue', () => {
+  it('is able to publish to route consumer:2', async () => {
+    const response = await this.amqp
+      .publishAndWait('test.default', 'test-message');
+
+    assert.equal(response.resp, 'test-message-response');
+  });
+
+  it('is able to publish to route consumer:2', async () => {
+    const response = await this.amqp
+      .publishAndWait('test.default', 'test-message');
+
+    assert.equal(response.resp, 'test-message-response');
+  });
+
+  it('is able to send messages directly to a queue', async () => {
     const privateQueue = this.amqp._replyTo;
-    return this.amqp_consumer
+    const promise = await this.amqp_consumer
       .sendAndWait(privateQueue, 'test-message-direct-queue')
-      .reflect()
-      .then((promise) => {
-        assert.equal(promise.isRejected(), true);
-        assert.equal(promise.reason().name, 'NotPermittedError');
-      });
+      .reflect();
+
+    assert.equal(promise.isRejected(), true);
+    assert.equal(promise.reason().name, 'NotPermittedError');
   });
 
   describe('concurrent publish', () => {
@@ -222,15 +214,15 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
     it('able to publish multiple messages at once', () => {
       const transport = this.concurrent;
-      const promises = ld.times(5, i => (
+      const promises = ld.times(5, (i) => (
         transport.publishAndWait('test.default', `ok.${i}`)
       ));
       return Promise.all(promises);
     });
 
-    after('close consumer', () => (
-      this.concurrent.close()
-    ));
+    after('close consumer', async () => {
+      await this.concurrent.close();
+    });
   });
 
   describe('DLX: enabled', () => {
@@ -239,13 +231,17 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       return transport.connect();
     });
 
-    it('create queue, but do not consume', () => (
-      this.dlx
-        .createConsumedQueue(() => {}, ['hub'], {
-          queue: 'dlx-consumer',
-        })
-        .spread(consumer => consumer.close())
-    ));
+    after('close amqp', async () => {
+      await this.dlx.close();
+    });
+
+    it('create queue, but do not consume', async () => {
+      const kReestablishQueue = await this.dlx.createConsumedQueue(() => {}, ['hub'], {
+        queue: 'dlx-consumer',
+      });
+
+      await this.dlx._consumers.get(kReestablishQueue).close();
+    });
 
     it('publish message and receive DLX response', () => (
       // it will be published to the `dlx-consumer` queue
@@ -262,16 +258,16 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           assert.equal(e.message, 'Expired from queue "dlx-consumer" with routing keys ["hub"] after 2250ms 1 time(s)');
         })
     ));
-
-    after('close amqp', () => (
-      this.dlx.close()
-    ));
   });
 
   describe('cached request', () => {
     before('init consumer', () => {
       const transport = this.cached = new AMQPTransport(configuration);
       return transport.connect();
+    });
+
+    after('close published', async () => {
+      await this.cached.close();
     });
 
     it('publishes batches of messages, they must return cached values and then new ones', () => {
@@ -290,10 +286,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         assert(toMiliseconds(initial.time) < toMiliseconds(nonCached.time));
       });
     });
-
-    after('close published', () => (
-      this.cached.close()
-    ));
   });
 
   describe('contentEncoding, contentType', () => {
@@ -303,6 +295,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     before('init publisher', async () => {
       transport = await AMQPTransport.connect(configuration);
     });
+
+    after('close publisher', () => transport.close());
 
     it('parses application/json+gzip', async () => {
       let response;
@@ -338,8 +332,6 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       response = await transport.publishAndWait('test.default', original, { gzip: true });
       assert.deepStrictEqual(response.resp, original);
     });
-
-    after('close publisher', () => transport.close());
   });
 
   describe('AMQPTransport.multiConnect', () => {
@@ -353,6 +345,11 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       queue: 'multi',
       listen: ['t.#', 'tbone', 'morgue'],
     };
+
+    after('close multi-transport', async () => {
+      await this.multi.close();
+      await this.publisher.close();
+    });
 
     it('initializes amqp instance', () => {
       // mirrors all messages
@@ -375,13 +372,12 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       return Promise.join(consumer, publisher, (multi, amqp) => {
         this.multi = multi;
         this.publisher = amqp;
-
         this.multi.on('pre', preCount);
         this.multi.on('after', postCount);
       });
     });
 
-    it('verify that messages are all received & acked', () => {
+    it('verify that messages are all received & acked', async () => {
       const q1 = Array.from({ length: 100 }).map((_, idx) => ({
         route: `t.${idx}`,
         message: `t.${idx}`,
@@ -399,33 +395,25 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
 
       const pub = [...q1, ...q2, ...q3];
 
-      return Promise
-        .map(pub, message => (
+      const responses = await Promise
+        .map(pub, (message) => (
           this.publisher.publishAndWait(message.route, message.message)
         ))
-        .delay(10) // to allow async action to call 'after'
-        .then((responses) => {
-          assert.equal(acksCalled, q1.length);
+        .delay(10); // to allow async action to call 'after'
 
-          // ensure all responses match
-          pub.forEach((p, idx) => {
-            assert.equal(responses[idx], p.message);
-          });
+      assert.equal(acksCalled, q1.length);
 
-          assert.equal(this.spy.callCount, pub.length);
+      // ensure all responses match
+      pub.forEach((p, idx) => {
+        assert.equal(responses[idx], p.message);
+      });
 
-          // ensure that pre & after are called for each message
-          assert.equal(preCount.callCount, pub.length);
-          assert.equal(postCount.callCount, pub.length);
-        });
+      assert.equal(this.spy.callCount, pub.length);
+
+      // ensure that pre & after are called for each message
+      assert.equal(preCount.callCount, pub.length);
+      assert.equal(postCount.callCount, pub.length);
     });
-
-    after('close multi-transport', () => (
-      Promise.join(
-        this.multi.close(),
-        this.publisher.close()
-      )
-    ));
   });
 
   describe('priority queue', function test() {
@@ -444,6 +432,11 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         this.priority = priority;
         this.publisher = amqp;
       });
+    });
+
+    after('close priority-transport', async () => {
+      await this.priority.close();
+      await this.publisher.close();
     });
 
     it('create priority queue', () => {
@@ -487,17 +480,10 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         });
       });
     });
-
-    after('close priority-transport', () => (
-      Promise.join(
-        this.priority.close(),
-        this.publisher.close()
-      )
-    ));
   });
 
   describe('double bind', function test() {
-    before('init transport', () => {
+    before('init transport', async () => {
       this.spy = sinon.spy(function responder(message, properties, actions, next) {
         next(null, { message, properties });
       });
@@ -522,16 +508,16 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         listen: ['direct-binding-key', 'test.mandatory'],
       };
 
-      return AMQPTransport
-        .connect(opts, this.spy)
-        .then((transport) => {
-          this.transport = transport;
-        });
+      this.transport = await AMQPTransport.connect(opts, this.spy);
     });
 
-    it('delivers messages using headers', () => {
-      return Promise
-        .map(['direct-binding-key', 'doesnt-exist'], routingKey => (
+    after('close transport', async () => {
+      await this.transport.close();
+    });
+
+    it('delivers messages using headers', async () => {
+      await Promise
+        .map(['direct-binding-key', 'doesnt-exist'], (routingKey) => (
           this.transport
             .publish('', 'hi', {
               confirm: true,
@@ -542,21 +528,73 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
             })
             .reflect()
         ))
-        .delay(100)
-        .then(() => {
-          assert.ok(this.spy.calledOnce);
-        });
+        .delay(100);
+
+      assert.ok(this.spy.calledOnce);
+    });
+  });
+
+  describe('Consumers externally available', function suite() {
+    before('init transport', async () => {
+      this.proxy = new Proxy(9010, RABBITMQ_PORT, RABBITMQ_HOST);
+      this.transport = new AMQPTransport({
+        connection: {
+          port: 9010,
+          heartbeat: 2000,
+        },
+        debug: true,
+        exchange: 'test-direct',
+        exchangeArgs: {
+          autoDelete: false,
+          type: 'direct',
+        },
+        defaultQueueOpts: {
+          autoDelete: true,
+          exclusive: true,
+        },
+      });
+
+      const amqp = await this.transport.connect();
+      sinon.spy(amqp, 'closeAllConsumers');
     });
 
-    after('close transport', () => {
-      this.transport.close();
+    after('close transport', async () => {
+      const { transport } = this;
+
+      transport.closeAllConsumers.restore();
+      await transport.close();
+      await this.proxy.close();
+    });
+
+    function router(message, headers, actions, next) {
+      switch (headers.routingKey) {
+        case '/':
+          // #3 all right, try answer
+          assert.deepEqual(message, { foo: 'bar' });
+          return next(null, { bar: 'baz' });
+        default:
+          throw new Error();
+      }
+    }
+
+    it('`consumers` map filled', async () => {
+      const { transport } = this;
+
+      await transport.createConsumedQueue(router, ['/']);
+
+      const { _consumers } = transport;
+
+      assert.strictEqual(_consumers.size, 1);
+      await transport.closeAllConsumers();
+
+      assert.equal(_consumers.size, 0);
     });
   });
 
   describe('consumed queue', function test() {
     const tracer = new MockTracer();
 
-    before('init transport', () => {
+    before('init transport', async () => {
       this.proxy = new Proxy(9010, RABBITMQ_PORT, RABBITMQ_HOST);
       this.transport = new AMQPTransport({
         connection: {
@@ -576,7 +614,21 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         tracer,
       });
 
-      return this.transport.connect();
+      await this.transport.connect();
+    });
+
+    afterEach('tracer report', () => {
+      const report = tracer.report();
+
+      // print report for visuals
+      console.log(printReport(report)); // eslint-disable-line no-console
+      assert.equal(report.unfinishedSpans.length, 0);
+      tracer.clear();
+    });
+
+    after('close transport', async () => {
+      await this.transport.close();
+      await this.proxy.close();
     });
 
     function router(message, headers, actions, next) {
@@ -590,7 +642,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       }
     }
 
-    it('reestablishing consumed queue', () => {
+    it('reestablishing consumed queue', async () => {
       const { transport } = this;
       const sample = { foo: 'bar' };
       const publish = () => transport.publishAndWait('/', sample, { confirm: true });
@@ -606,91 +658,96 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         }
       });
 
-      return transport
-        .createConsumedQueue(router, ['/'])
-        .tap(() => Promise.all([
+      try {
+        const kReestablishConsumer = await transport.createConsumedQueue(router, ['/']);
+
+        await Promise.all([
           publish(),
           Promise.delay(250).then(publish),
-          Promise.delay(5000).then(publish),
           Promise.delay(300).then(() => this.proxy.interrupt(3000)),
-        ]))
-        .spread((consumer, queue, establishConsumer) => Promise.join(
-          transport.stopConsumedQueue(establishConsumer),
-          Promise.fromCallback(next => queue.delete(next))
-        ))
-        .finally(() => {
-          transport.removeAllListeners('publish');
-          assert.equal(counter, 6); // 3 requests, 3 responses
-          for (const msg of args) {
-            assert.deepStrictEqual(msg, sample);
-          }
-        });
+          Promise.delay(5000).then(publish),
+        ]);
+
+        await Promise.all([
+          transport.closeAllConsumers(),
+          transport._queues.get(kReestablishConsumer).deleteAsync(),
+        ]);
+      } finally {
+        transport.removeAllListeners('publish');
+        assert.equal(counter, 6); // 3 requests, 3 responses
+        for (const msg of args) {
+          assert.deepStrictEqual(msg, sample);
+        }
+      }
     });
 
-    it('should create consumed queue', (done) => {
+    it('should create consumed queue', async () => {
       const { transport } = this;
-      transport.on('consumed-queue-reconnected', (consumer, queue) => {
-        debug('initial reconnect');
-        // #2 reconnected, try publish
-        return transport
-          .publishAndWait('/', { foo: 'bar' }, { timeout: 500 })
-          .then((message) => {
-            // #4 OK, try unbind
-            assert.deepEqual(message, { bar: 'baz' });
-            debug('unbind exchange from /', queue.queueOptions.name);
-            return transport.unbindExchange(queue, '/');
-          })
-          .then(() => {
-            // #5 unbinded, let's reconnect
-            transport.removeAllListeners('consumed-queue-reconnected');
-            transport.on('consumed-queue-reconnected', () => {
-              debug('reconnected for the second time, publish must not succeed');
-              // #7 reconnected again
-              transport.publish('/', { bar: 'foo' });
-              Promise.delay(1000).tap(done);
-            });
-
-            // #6 trigger error again
-            setTimeout(() => {
-              debug('called interrupt (2) in 20');
-              this.proxy.interrupt(20);
-            }, 10);
-          })
-          .catch((e) => {
-            debug('error for publish', e);
-          });
+      let done;
+      let fail;
+      const promise = new Promise((resolve, reject) => {
+        done = resolve;
+        fail = reject;
       });
 
-      transport.createConsumedQueue(router)
-        .spread((consumer, queue) => transport.bindExchange(queue, '/'))
-        .tap(() => {
-          // #1 trigger error
-          setTimeout(() => {
-            debug('called interrupt (1) in 20');
-            this.proxy.interrupt(20);
-          }, 10);
-        });
-    });
+      const kReestablishConsumer = await transport.createConsumedQueue(router);
+      const queue = transport._queues.get(kReestablishConsumer);
 
-    afterEach('tracer report', () => {
-      const report = tracer.report();
+      await transport.bindExchange(queue, '/');
 
-      // print report for visuals
-      console.log(printReport(report));
-      assert.equal(report.unfinishedSpans.length, 0);
-      tracer.clear();
-    });
+      // #1 trigger error
+      debug('called interrupt (1) in 20');
+      this.proxy.interrupt(20);
 
-    after('close transport', () => {
-      this.proxy.close();
-      this.transport.close();
+      let attempt = 0;
+      transport.on('consumed-queue-reconnected', async () => {
+        attempt += 1;
+        assert.equal(attempt, 1, 'must only trigger once');
+
+        // #2 reconnected, try publish
+        try {
+          const message = await transport
+            .publishAndWait('/', { foo: 'bar' }, { timeout: 500 });
+
+          // #4 OK, try unbind
+          assert.deepEqual(message, { bar: 'baz' });
+          debug('unbind exchange from /', queue.queueOptions.name);
+
+          const activeQueue = transport._queues.get(kReestablishConsumer);
+          await transport.unbindExchange(activeQueue, '/');
+
+          // #5 unbound, let's reconnect
+          transport.removeAllListeners('consumed-queue-reconnected');
+          transport.on('consumed-queue-reconnected', async () => {
+            debug('reconnected for the second time, publish must not succeed');
+
+            // #7 reconnected again
+            // dont wait for actual publish, if message comes router
+            // will throw and crash the process
+            transport.publish('/', { bar: 'foo' });
+
+            // resolve only on second attempt after proxy interrupt
+            await Promise.delay(1000).then(done);
+          });
+
+          // #6 trigger error again
+          await Promise.delay(10);
+          debug('called interrupt (2) in 20');
+          this.proxy.interrupt(20);
+        } catch (e) {
+          debug('error for publish', e);
+          fail(e);
+        }
+      });
+
+      await promise;
     });
   });
 
   describe('response headers', function test() {
     const tracer = new MockTracer();
 
-    before('init transport', () => {
+    before('init transport', async () => {
       this.proxy = new Proxy(9010, RABBITMQ_PORT, RABBITMQ_HOST);
       this.transport = new AMQPTransport({
         connection: {
@@ -710,7 +767,12 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         tracer,
       });
 
-      return this.transport.connect();
+      await this.transport.connect();
+    });
+
+    after('cleanup', async () => {
+      await this.transport.close();
+      await this.proxy.close();
     });
 
     function router(message, headers, raw, next) {
@@ -754,7 +816,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
 
       try {
-        const [, queue, establishConsumer] = await transport.createConsumedQueue(router, ['/include-headers']);
+        const kReestablishConsumer = await transport.createConsumedQueue(router, ['/include-headers']);
 
         const response = await transport.publishAndWait('/include-headers', sample, {
           confirm: true,
@@ -769,12 +831,10 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           }
         );
 
-        await Promise.join(
-          transport.stopConsumedQueue(establishConsumer),
-          Promise.fromCallback(next => queue.delete(next))
-        );
-      } catch (e) {
-        throw e;
+        await Promise.all([
+          transport.closeAllConsumers(),
+          transport._queues.get(kReestablishConsumer).deleteAsync(),
+        ]);
       } finally {
         transport.removeAllListeners('publish');
         assert.equal(counter, 2); // 1 requests, 1 responses
@@ -800,7 +860,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
 
       try {
-        const [, queue, establishConsumer] = await transport.createConsumedQueue(router, ['/return-custom-header']);
+        const kReestablishConsumer = await transport.createConsumedQueue(router, ['/return-custom-header']);
 
         const response = await transport.publishAndWait('/return-custom-header', sample, {
           confirm: true,
@@ -815,12 +875,10 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
           }
         );
 
-        await Promise.join(
-          transport.stopConsumedQueue(establishConsumer),
-          Promise.fromCallback(next => queue.delete(next))
-        );
-      } catch (e) {
-        throw e;
+        await Promise.all([
+          transport.closeAllConsumers(),
+          transport._queues.get(kReestablishConsumer).deleteAsync(),
+        ]);
       } finally {
         transport.removeAllListeners('publish');
         assert.equal(counter, 2); // 1 requests, 1 responses
@@ -846,7 +904,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       });
 
       try {
-        const [, queue, establishConsumer] = await transport.createConsumedQueue(router, ['/return-headers-on-error']);
+        const kReestablishConsumer = await transport.createConsumedQueue(router, ['/return-headers-on-error']);
 
         try {
           await transport.publishAndWait('/return-headers-on-error', sample, {
@@ -856,15 +914,13 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         } catch (error) {
           // here I should expect headers
           assert.strictEqual('Error occured but at least you still have your headers', error.message);
-          assert.deepEqual({ 'x-custom-header': 'error-but-i-dont-care', timeout: 10000 }, error[kReplyHeaders])
+          assert.deepEqual({ 'x-custom-header': 'error-but-i-dont-care', timeout: 10000 }, error[kReplyHeaders]);
 
-          await Promise.join(
-            transport.stopConsumedQueue(establishConsumer),
-            Promise.fromCallback(next => queue.delete(next))
-          );
+          await Promise.all([
+            transport.closeAllConsumers(),
+            transport._queues.get(kReestablishConsumer).deleteAsync(),
+          ]);
         }
-      } catch (e) {
-        throw e;
       } finally {
         transport.removeAllListeners('publish');
         assert.equal(counter, 2); // 1 requests, 1 responses
@@ -873,11 +929,5 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         }
       }
     });
-
-    after('cleanup', () => (
-      Promise.map(['amqp', 'amqp_consumer'], name => (
-        this[name] && this[name].close()
-      ))
-    ));
   });
 });

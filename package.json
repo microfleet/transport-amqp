@@ -13,7 +13,7 @@
     "semantic-release": "semantic-release"
   },
   "engines": {
-    "node": ">= 8.9.0",
+    "node": ">= 10.15.0",
     "npm": ">= 4.x.x"
   },
   "repository": {
@@ -34,6 +34,7 @@
     "@babel/plugin-transform-strict-mode": "^7.2.0",
     "@babel/register": "^7.5.5",
     "@makeomatic/deploy": "^8.4.6",
+    "babel-eslint": "^10.0.3",
     "babel-plugin-istanbul": "^5.2.0",
     "benchmark": "^2.1.4",
     "chai": "^4.2.0",

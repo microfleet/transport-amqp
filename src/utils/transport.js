@@ -1,9 +1,24 @@
-/* eslint-disable import/no-dynamic-require */
 const Promise = require('bluebird');
 
 // Promisify stuff
 ['Exchange', 'Queue', 'Connection', 'Consumer', 'Publisher'].forEach((name) => {
-  Promise.promisifyAll(require(`@microfleet/amqp-coffee/bin/src/lib/${name}`).prototype);
+  const path = require.resolve(`@microfleet/amqp-coffee/bin/src/lib/${name}`);
+  /* eslint-disable import/no-dynamic-require */
+  Promise.promisifyAll(require(path).prototype);
+  /* eslint-enable import/no-dynamic-require */
 });
 
-module.exports = require('@microfleet/amqp-coffee');
+const amqp = require('@microfleet/amqp-coffee');
+
+amqp.prototype.consumeAsync = async function consumeAsync(...args) {
+  let consumer;
+
+  await Promise.fromCallback((next) => {
+    consumer = this.consume(...args, next);
+  });
+
+  return consumer;
+};
+
+
+module.exports = amqp;
