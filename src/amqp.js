@@ -46,29 +46,34 @@ const { jsonSerializer, jsonDeserializer } = require('./utils/serialization');
 
 // cache references
 const { AmqpDLXError } = generateErrorMessage;
-const { closeConsumer, wrapError, setQoS } = helpers;
+const { wrapError, setQoS } = helpers;
 const { Tags, FORMAT_TEXT_MAP } = opentracing;
 const PARSE_ERR = new ValidationError('couldn\'t deserialize input', 500, 'message.raw');
 
-// wrap promise
-const wrapPromise = (span, promise) => (
-  Promise
-    .resolve(promise)
-    .catch((error) => {
-      span.setTag(Tags.ERROR, true);
-      span.log({
-        event: 'error',
-        'error.object': error,
-        message: error.message,
-        stack: error.stack,
-      });
+/**
+ * Wraps regular in a bluebird promise
+ * @param  {Span} span opentracing span
+ * @param  {Promise} promise pending promise
+ *
+ * @return {BluebirdPromise}
+ */
+const wrapPromise = (span, promise) => Promise.resolve((async () => {
+  try {
+    return await promise;
+  } catch (error) {
+    span.setTag(Tags.ERROR, true);
+    span.log({
+      event: 'error',
+      'error.object': error,
+      message: error.message,
+      stack: error.stack,
+    });
 
-      return Promise.reject(error);
-    })
-    .finally(() => {
-      span.finish();
-    })
-);
+    throw error;
+  } finally {
+    span.finish();
+  }
+})());
 
 const serialize = async (message, publishOptions) => {
   let serialized;
@@ -98,7 +103,7 @@ function safeJSONParse(data, log) {
   }
 }
 
-const toUniqueStringArray = routes => (
+const toUniqueStringArray = (routes) => (
   Array.isArray(routes) ? uniq(routes) : [routes]
 );
 
@@ -234,8 +239,9 @@ class AMQPTransport extends EventEmitter {
 
     // setup instance
     this._replyTo = null;
-    this._consumers = new WeakMap();
+    this._consumers = new Map();
     this._queues = new WeakMap();
+    this._reconnectionHandlers = new WeakMap();
     this._boundEmit = this.emit.bind(this);
 
     // Form app id string for debugging
@@ -322,22 +328,35 @@ class AMQPTransport extends EventEmitter {
     }
   }
 
+  /**
+   * Stops consumers and closes transport
+   */
+  async _close() {
+    const { _amqp: amqp } = this;
+
+    await this.closeAllConsumers();
+
+    try {
+      await new Promise((resolve, reject) => {
+        amqp.once('close', resolve);
+        amqp.once('error', reject);
+        amqp.close();
+      });
+    } finally {
+      this._amqp = null;
+      amqp.removeAllListeners();
+    }
+  }
+
   close() {
     const { _amqp: amqp } = this;
+
     if (amqp) {
       switch (amqp.state) {
         case 'opening':
         case 'open':
         case 'reconnecting':
-          return new Promise((resolve, reject) => {
-            amqp.once('close', resolve);
-            amqp.once('error', reject);
-            amqp.close();
-          }).finally(() => {
-            this._amqp = null;
-            amqp.removeAllListeners();
-          });
-
+          return this._close();
         default:
           this._amqp = null;
           return Promise.resolve();
@@ -354,139 +373,210 @@ class AMQPTransport extends EventEmitter {
    *
    * @param {Object}  opts   - queue parameters
    */
-  createQueue(opts) {
+  async createQueue(opts) {
     const { _amqp: amqp, log, _onConsume } = this;
 
     // prepare params
-    const ctx = {};
+    const ctx = Object.create(null);
     const userParams = is.string(opts) ? { queue: opts } : opts;
-    const queueName = userParams.queue;
-    const params = merge({ autoDelete: !queueName, durable: !!queueName }, userParams);
+    const requestedName = userParams.queue;
+    const params = merge({ autoDelete: !requestedName, durable: !!requestedName }, userParams);
 
-    log.debug('initializing queue', params);
+    log.debug({ params }, 'initializing queue');
 
-    return Promise
-      .bind(ctx, amqp)
-      .call('queueAsync', params)
-      .then(function declareQueue(queue) {
-        this.queue = queue;
-        return queue.declareAsync();
-      })
+    const queue = ctx.queue = await amqp.queueAsync(params);
+
+    await Promise
+      .resolve(queue.declareAsync())
       .catch(AMQPTransport.error406, this._on406.bind(this, params))
-      .catch((err) => {
-        log.warn('failed to init queue', params.queue, err.replyText);
-        throw err;
-      })
-      .then(function establishConsumer() {
-        // copy queue options
-        const options = this.options = { ...this.queue.queueOptions };
-        log.info('queue "%s" created', options.queue);
+      .tapCatch((err) => {
+        log.warn({ err, queue: params.queue }, 'failed to init queue');
+      });
 
-        if (!params.router) {
-          return null;
+    // copy queue options
+    const options = ctx.options = { ...ctx.queue.queueOptions };
+    const queueName = options.queue;
+    log.info({ queue: queueName }, 'queue created');
+
+    if (!params.router) {
+      return ctx;
+    }
+
+    log.info({ queue: options.queue }, 'consumer is being created');
+
+    // setup consumer
+    const messageHandler = _onConsume(params.router);
+    ctx.consumer = await amqp.consumeAsync(queueName, setQoS(params), messageHandler);
+
+    return ctx;
+  }
+
+  handlePrivateConsumerError(consumer, queue, err) {
+    const { error } = err;
+    if (error && error.replyCode === 404 && error.replyText.indexOf(queue) !== -1) {
+      // https://github.com/dropbox/amqp-coffee#consumer-event-error
+      // handle consumer error on reconnect and close consumer
+      // warning: other queues (not private one) should be handled manually
+      this.log.error('consumer returned 404 error', error);
+
+      // reset replyTo queue and ignore all future errors
+      consumer.removeAllListeners('error');
+      consumer.removeAllListeners('cancel');
+      consumer.on('error', noop);
+      consumer.close();
+
+      // recreate queue
+      if (this._replyTo !== false) this.createPrivateQueue();
+
+      return;
+    }
+
+    this.log.error('private consumer returned err', err);
+    this.emit('error', err);
+  }
+
+  // access-refused  403
+  //  The client attempted to work with a server entity
+  //  to which it has no access due to security settings.
+  // not-found  404
+  //  The client attempted to work with a server entity that does not exist.
+  // resource-locked  405
+  //  The client attempted to work with a server entity
+  //  to which it has no access because another client is working with it.
+  // precondition-failed  406
+  //  The client requested a method that was not allowed
+  //  because some precondition failed.
+  async handleConsumerError(consumer, queue, err, res) {
+    const error = err.error || err;
+
+    // https://www.rabbitmq.com/amqp-0-9-1-reference.html -
+    switch (error.replyCode) {
+      // ignore errors
+      case 311:
+      case 313:
+        this.log.error({ err, res }, 'error working with a channel:');
+        return null;
+
+      case 404:
+        if (error.replyText && error.replyText.includes(queue.queueOptions.queue)) {
+          return this.rebindConsumer(consumer, error, res);
         }
+        return null;
 
-        return Promise.fromNode((next) => {
-          log.info('consumer is being created on "%s"', options.queue);
+      default:
+        this.log.warn({ err }, 'unhandled consumer error');
+        return this.rebindConsumer(consumer, error, res);
+    }
+  }
 
-          // setup consumer
-          this.consumer = amqp.consume(
-            options.queue,
-            setQoS(params),
-            _onConsume(params.router),
-            next
-          );
-        });
-      })
-      .return(ctx);
+  async rebindConsumer(consumer, err, res) {
+    const msg = err ? err.replyText : 'uncertain';
+
+    // cleanup a bit
+    this.log.warn({ err, res }, 're-establishing connection after %s', msg);
+
+    // saved reference to re-establishing function
+    const establishConsumer = this._reconnectionHandlers.get(consumer);
+
+    if (establishConsumer == null) {
+      this.log.fatal({ err, res }, 'failed to fetch connection handler');
+      return;
+    }
+
+    try {
+      await this.closeConsumer(consumer);
+      await Promise.delay(this.recovery.get('consumed', 1));
+    } catch (e) {
+      this.log.error({ err: e }, 'failed to close consumer');
+    } finally {
+      await establishConsumer();
+    }
+  }
+
+  handlePrivateConsumerCancel(consumer) {
+    consumer.removeAllListeners('error');
+    consumer.removeAllListeners('cancel');
+    consumer.on('error', noop);
+    consumer.close();
+
+    // recreate queue unless it is already being recreated
+    if (this._replyTo !== false) {
+      this.createPrivateQueue();
+    }
   }
 
   /**
    * Create unnamed private queue (used for reply events)
    */
-  createPrivateQueue(attempt = 0) {
+  async createPrivateQueue(attempt = 0) {
     const replyTo = this._replyTo;
+    const queueOpts = {
+      ...this.config.privateQueueOpts,
+      router: this._privateMessageRouter, // private router here
+      queue: replyTo || `microfleet.${uuid.v4()}`, // reuse same private queue name if it was specified before
+    };
 
     // reset current state
     this._replyTo = false;
 
-    return Promise
-      .bind(this, this)
-      .delay(this.recovery.get('private', attempt))
-      .call('createQueue', {
-        ...this.config.privateQueueOpts,
-        // private router here
-        router: this._privateMessageRouter,
-        // reuse same private queue name if it was specified before
-        queue: replyTo || `microfleet.${uuid.v4()}`,
-      })
-      .then(function privateQueueCreated(data) {
-        const { consumer, queue, options } = data;
+    let createdQueue;
+    try {
+      const { consumer, queue, options } = createdQueue = await this.createQueue(queueOpts);
 
-        // remove existing listeners
-        consumer.removeAllListeners('error');
-        consumer.removeAllListeners('cancel');
+      // remove existing listeners
+      consumer.removeAllListeners('error');
+      consumer.removeAllListeners('cancel');
 
-        // consume errors - re-create when we encounter 404
-        consumer.on('error', (err) => {
-          const { error } = err;
-          if (error && error.replyCode === 404 && error.replyText.indexOf(options.queue) !== -1) {
-            // https://github.com/dropbox/amqp-coffee#consumer-event-error
-            // handle consumer error on reconnect and close consumer
-            // warning: other queues (not private one) should be handled manually
-            this.log.error('consumer returned 404 error', error);
+      // consume errors - re-create when we encounter 404 or on cancel
+      consumer.on('error', this.handlePrivateConsumerError.bind(this, consumer, options.queue));
+      consumer.once('cancel', this.handlePrivateConsumerCancel.bind(this, consumer));
 
-            // reset replyTo queue and ignore all future errors
-            consumer.removeAllListeners('error');
-            consumer.removeAllListeners('cancel');
-            consumer.on('error', noop);
-            consumer.close();
+      // declare _replyTo queueName
+      this._replyTo = options.queue;
 
-            // recreate queue
-            if (this._replyTo !== false) this.createPrivateQueue();
+      // bind temporary queue to headers exchange for DLX messages
+      // NOTE: if this fails we might have a problem where expired messages
+      // are not delivered & private queue is never ready
+      const dlxConfig = this.config.dlx;
+      if (dlxConfig.enabled === true) {
+        await this.bindHeadersExchange(queue, this._replyTo, dlxConfig.params, 'reply-to');
+      }
+    } catch (e) {
+      this.log.error('private queue creation failed - restarting', e);
+      await Promise.delay(this.recovery.get('private', attempt));
+      return this.createPrivateQueue(attempt + 1);
+    }
 
-            return null;
-          }
+    this.log.debug({ queue: this._replyTo }, 'private-queue-ready');
+    setImmediate(this._boundEmit, 'private-queue-ready');
 
-          this.log.error('private consumer returned err', err);
-          this.emit('error', err);
-          return null;
-        });
+    return createdQueue;
+  }
 
-        // re-create on cancel as-well
-        consumer.once('cancel', () => {
-          consumer.removeAllListeners('error');
-          consumer.removeAllListeners('cancel');
-          consumer.on('error', noop);
-          consumer.close();
+  async bindQueueToExchangeOnRoutes(routes, queue, oldQueue = Object.create(null)) {
+    const previousRoutes = oldQueue._routes || [];
 
-          // recreate queue
-          if (this._replyTo !== false) this.createPrivateQueue();
-        });
+    if (routes.length === 0 && previousRoutes.length === 0) {
+      queue._routes = [];
+      return;
+    }
 
-        // declare _replyTo queueName
-        this._replyTo = options.queue;
+    // retrieved some of the routes
+    this.log.debug({ routes, previousRoutes }, 'retrieved routes');
 
-        // return data right away
-        if (this.config.dlx.enabled !== true) {
-          return data;
-        }
+    const rebindRoutes = uniq([...previousRoutes, ...routes]);
+    queue._routes = rebindRoutes;
 
-        // bind temporary queue to headers exchange for DLX messages
-        // NOTE: if this fails we might have a problem where expired messages
-        // are not delivered & private queue is never ready
-        return this
-          .bindHeadersExchange(queue, this._replyTo, this.config.dlx.params, 'reply-to')
-          .return(data);
-      })
-      .tap(() => {
-        this.log.debug('private-queue-ready', this._replyTo);
-        setImmediate(this._boundEmit, 'private-queue-ready');
-      })
-      .catch((e) => {
-        this.log.error('private queue creation failed - restarting', e);
-        return this.createPrivateQueue(attempt + 1);
-      });
+    const work = [
+      this.bindExchange(queue, rebindRoutes, this.config.exchangeArgs),
+    ];
+
+    // bind same queue to headers exchange
+    if (this.config.bindPersistantQueueToHeadersExchange === true) {
+      work.push(this.bindHeadersExchange(queue, rebindRoutes, this.config.headersExchange));
+    }
+
+    await Promise.all(work);
   }
 
   /**
@@ -494,7 +584,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Array} listen
    * @param {Object} options
    */
-  createConsumedQueue(messageHandler, listen = [], options = {}) {
+  async createConsumedQueue(messageHandler, listen = [], options = {}) {
     if (is.fn(messageHandler) === false || Array.isArray(listen) === false) {
       throw new ArgumentError('messageHandler and listen must be present');
     }
@@ -503,167 +593,137 @@ class AMQPTransport extends EventEmitter {
       throw new ArgumentError('options');
     }
 
-    const transport = this;
-    const { config } = transport;
-
-    const router = initRoutingFn(messageHandler, transport);
+    const { config } = this;
+    const router = initRoutingFn(messageHandler, this);
     const baseOpts = { router, neck: config.neck, queue: config.queue || '' };
     const queueOptions = merge(baseOpts, config.defaultQueueOpts, this._extraQueueOptions, options);
 
     if (config.bindPersistantQueueToHeadersExchange === true) {
-      listen.forEach((route) => {
+      for (const route of listen.values()) {
         assert.ok(
           /^[^*#]+$/, route,
-          'with bindPersistantQueueToHeadersExchange:true routes must not have patterns'
+          'with bindPersistantQueueToHeadersExchange: true routes must not have patterns'
         );
-      });
-    }
-
-    this.log.debug('creating consumed queue %s with routes', queueOptions.queue, listen);
-
-    // bind to an opened exchange once connected
-    function createExchange({ queue }) {
-      // eslint-disable-next-line no-use-before-define
-      const oldQueue = transport._queues.get(establishConsumer) || {};
-      const routes = oldQueue._routes || [];
-
-      if (listen.length === 0 && routes.length === 0) {
-        queue._routes = [];
-        return null;
       }
-
-      // retrieved some of the routes
-      transport.log.debug('retrieved routes', routes, listen);
-
-      const rebindRoutes = uniq([...listen, ...routes]);
-      queue._routes = rebindRoutes;
-
-      const work = [
-        transport.bindExchange(queue, rebindRoutes, config.exchangeArgs),
-      ];
-
-      // bind same queue to headers exchange
-      if (config.bindPersistantQueueToHeadersExchange === true) {
-        work.push(transport.bindHeadersExchange(queue, rebindRoutes, config.headersExchange));
-      }
-
-      return Promise.all(work);
     }
 
     // pipeline for establishing consumer
-    function establishConsumer(attempt = 0) {
-      transport.log.debug('[establish consumer]', attempt);
+    const establishConsumer = async (attempt = 0) => {
+      const { log, recovery } = this;
+      const {
+        _consumers: consumers,
+        _queues: queues,
+        _reconnectionHandlers: connectionHandlers,
+      } = this;
 
-      const oldConsumer = transport._consumers.get(establishConsumer);
-      let promise = Promise.bind(transport, transport);
+      log.debug({ attempt }, 'establish consumer');
+
+      const oldConsumer = consumers.get(establishConsumer);
+      const oldQueue = queues.get(establishConsumer);
 
       // if we have old consumer
       if (oldConsumer) {
-        transport._consumers.delete(establishConsumer);
-        promise = promise.tap(() => closeConsumer.call(transport, oldConsumer));
+        await this.closeConsumer(oldConsumer);
       }
 
-      return promise
-        .call('createQueue', { ...queueOptions })
-        .tap(createExchange)
-        .catch((e) => {
-          throw new ConnectionError('failed to init queue or exchange', e);
-        })
-        .then(({ consumer, queue }) => {
-          // save ref to WeakMap
-          transport._consumers.set(establishConsumer, consumer);
-          transport._queues.set(establishConsumer, queue);
+      let createdQueue;
+      try {
+        const { queue } = createdQueue = await this.createQueue({ ...queueOptions });
+        await this.bindQueueToExchangeOnRoutes(listen, queue, oldQueue);
+      } catch (e) {
+        const err = new ConnectionError('failed to init queue or exchange', e);
+        log.warn({ err }, '[consumed-queue-down]');
+        await Promise.delay(recovery.get('consumed', attempt + 1));
+        return establishConsumer(attempt + 1);
+      }
 
-          // invoke to rebind
-          function rebind(err, res) {
-            const msg = err && err.replyText;
+      const { consumer, queue } = createdQueue;
 
-            // cleanup a bit
-            transport.log.warn('re-establishing connection after', msg || err, res || '');
+      // save ref to WeakMap
+      consumers.set(establishConsumer, consumer);
+      queues.set(establishConsumer, queue);
+      connectionHandlers.set(consumer, establishConsumer);
 
-            // if we can't connect - try again in 500 ms in .catch block
-            return Promise
-              .bind(transport, consumer)
-              .then(closeConsumer)
-              .delay(transport.recovery.get('consumed', 1))
-              .finally(establishConsumer);
-          }
+      // remove previous listeners if we re-use the channel
+      // for any reason
+      consumer.removeAllListeners('error');
+      consumer.removeAllListeners('cancel');
 
-          // remove previous listeners if we re-use the channel
-          // for any reason
-          consumer.removeAllListeners('error');
-          consumer.removeAllListeners('cancel');
+      consumer.on('error', this.handleConsumerError.bind(this, consumer, queue));
+      consumer.on('cancel', this.rebindConsumer.bind(this, consumer));
 
-          // access-refused  403
-          //  The client attempted to work with a server entity
-          //  to which it has no access due to security settings.
-          // not-found  404
-          //  The client attempted to work with a server entity that does not exist.
-          // resource-locked  405
-          //  The client attempted to work with a server entity
-          //  to which it has no access because another client is working with it.
-          // precondition-failed  406
-          //  The client requested a method that was not allowed
-          //  because some precondition failed.
-          consumer.on('error', (err, res) => {
-            const error = err.error || err;
+      // emit event that we consumer & queue is ready
+      const queueName = queue.queueOptions.queue;
+      log.info({ queueName, consumerTag: consumer.consumerTag }, 'consumed-queue-reconnected');
+      this.emit('consumed-queue-reconnected', consumer, queue, establishConsumer);
 
-            // https://www.rabbitmq.com/amqp-0-9-1-reference.html -
-            switch (error.replyCode) {
-              // ignore errors
-              case 311:
-              case 313:
-                transport.log.error('error working with a channel:', err, res);
-                return null;
-
-              case 404:
-                if (error.replyText && error.replyText.indexOf(queue.queueOptions.queue) !== -1) {
-                  rebind(error, res);
-                }
-                return null;
-
-              default:
-                return rebind(error, res);
-            }
-          });
-
-          consumer.on('cancel', rebind);
-
-          // emit event that we consumer & queue is ready
-          transport.log.info('[consumed-queue-reconnected] %s - %s', queue.queueOptions.queue, consumer.consumerTag);
-          transport.emit('consumed-queue-reconnected', consumer, queue);
-
-          return [consumer, queue, establishConsumer];
-        })
-        .catch(ConnectionError, (e) => {
-          transport.log.warn('[consumed-queue-down]', e);
-          return Promise
-            .resolve(attempt + 1)
-            .delay(transport.recovery.get('consumed', attempt + 1))
-            .then(establishConsumer);
-        });
-    }
+      return queue.queueOptions.queue;
+    };
 
     // make sure we recreate queue and establish consumer on reconnect
-    return establishConsumer().tap(() => {
-      transport.log.debug('bound `ready` to establishConsumer for', listen, queueOptions.queue);
-      transport.on('ready', establishConsumer);
-    });
+    this.log.debug({ listen, queue: queueOptions.queue }, 'creating consumed queue');
+    const queueName = await establishConsumer();
+
+    this.log.debug({ listen, queue: queueName }, 'bound `ready` to establishConsumer');
+    this.on('ready', establishConsumer);
+
+    return establishConsumer;
   }
 
   /**
-   * Stops consumed queue from reestablishing connection
-   * @returns {Promise<*>}
+   * Stops current running consumers
    */
-  stopConsumedQueue(bindFn) {
-    this.removeListener('ready', bindFn);
-    const consumer = this._consumers.get(bindFn);
+  async closeAllConsumers() {
+    const work = [];
+    for (const consumer of this._consumers.values()) {
+      work.push(this.stopConsumedQueue(consumer));
+    }
+    await Promise.all(work);
+  }
 
-    if (!consumer) return Promise.resolve();
+  /**
+   * Utility function to close consumer and forget about it
+   */
+  async closeConsumer(consumer) {
+    this.log.warn('closing consumer', consumer.consumerTag);
 
-    return Promise
-      .bind(this, consumer)
-      .then(closeConsumer);
+    // cleanup after one-self
+    this._consumers.delete(this._reconnectionHandlers.get(consumer));
+    this._reconnectionHandlers.delete(consumer);
+
+    consumer.removeAllListeners();
+    consumer.on('error', noop);
+
+    this._boundEmit('consumer-close', consumer);
+
+    // close channel
+    await Promise
+      .fromCallback((done) => {
+        consumer.cancel(done);
+      })
+      .timeout(5000)
+      .catch(Promise.TimeoutError, noop);
+
+    this.log.info({ consumerTag: consumer.consumerTag }, 'closed consumer');
+  }
+
+  /**
+   * Prevents consumer from re-establishing connection
+   * @param {Consumer} consumer
+   * @returns {Promise<Void>}
+   */
+  async stopConsumedQueue(consumer) {
+    if (!consumer) {
+      throw new TypeError('consumer must be defined');
+    }
+
+    const establishConsumer = this._reconnectionHandlers.get(consumer);
+    this.log.debug({ establishConsumer: !!establishConsumer }, 'fetched establish consumer');
+    if (establishConsumer) {
+      this.removeListener('ready', establishConsumer);
+    }
+
+    await this.closeConsumer(consumer);
   }
 
   /**
@@ -687,7 +747,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {boolean} [headerName=false] - if exchange has `headers` type.
    * @returns {Promise<*>}
    */
-  bindRoute(exchange, queue, route, headerName = false) {
+  async bindRoute(exchange, queue, route, headerName = false) {
     const queueName = queue.queueOptions.queue;
     const options = {};
     let routingKey;
@@ -702,18 +762,21 @@ class AMQPTransport extends EventEmitter {
       routingKey = '';
     }
 
-    return queue.bindAsync(exchange, routingKey, options).tap(() => {
-      if (Array.isArray(queue._routes)) {
-        // reconnect might push an extra route
-        if (queue._routes.indexOf(route) === -1) {
-          queue._routes.push(route);
-        }
+    const response = await queue.bindAsync(exchange, routingKey, options);
+    const { _routes: routes } = queue;
 
-        this.log.trace('[queue routes]', queue._routes);
+    if (Array.isArray(routes)) {
+      // reconnect might push an extra route
+      if (!routes.includes(route)) {
+        routes.push(route);
       }
 
-      this.log.debug('queue "%s" bound to exchange "%s" on route "%s"', queueName, exchange, routingKey);
-    });
+      this.log.trace({ routes, queueName }, '[queue routes]');
+    }
+
+    this.log.debug({ queueName, exchange, routingKey }, 'bound queue to exchange');
+
+    return response;
   }
 
   /**
@@ -742,7 +805,7 @@ class AMQPTransport extends EventEmitter {
 
     return this.declareExchange(params)
       .return(routes)
-      .map(route => (
+      .map((route) => (
         this.bindRoute(exchange, queue, route)
       ));
   }
@@ -787,7 +850,7 @@ class AMQPTransport extends EventEmitter {
     const { exchange } = this.config;
     const routes = toUniqueStringArray(_routes);
 
-    return Promise.map(routes, route => (
+    return Promise.map(routes, (route) => (
       queue.unbindAsync(exchange, route).tap(() => {
         const queueName = queue.queueOptions.queue;
         if (queue._routes) {
@@ -796,10 +859,10 @@ class AMQPTransport extends EventEmitter {
             queue._routes.splice(idx, 1);
           }
 
-          this.log.debug('queue routes', queue._routes);
+          this.log.debug({ routes: queue._routes }, 'queue routes');
         }
 
-        this.log.info('queue "%s" unbound from exchange "%s" on route "%s"', queueName, exchange, route);
+        this.log.info({ queueName, exchange, route }, 'queue unbound from exchange');
       })
     ));
   }
@@ -1062,27 +1125,27 @@ class AMQPTransport extends EventEmitter {
    * @param  {Span}     span - opentracing span
    * @return {Promise}
    */
-  createMessageHandler(routing, message, options, publishMessage, span) {
+  async createMessageHandler(routing, message, options, publishMessage, span) {
     const replyTo = options.replyTo || this._replyTo;
     const time = process.hrtime();
     const replyOptions = this._replyOptions(options);
 
     // ensure that reply queue exists before sending request
     if (typeof replyTo !== 'string') {
-      const promise = replyTo === false
-        ? this.awaitPrivateQueue()
-        : this.createPrivateQueue();
+      if (replyTo === false) {
+        await this.awaitPrivateQueue();
+      } else {
+        await this.createPrivateQueue();
+      }
 
-      return promise
-        .return(this)
-        .call('createMessageHandler', routing, message, options, publishMessage, span);
+      return this.createMessageHandler(routing, message, options, publishMessage, span);
     }
 
     // work with cache if options.cache is set and is number
     // otherwise cachedResponse is always null
     const cachedResponse = this.cache.get(message, options.cache);
     if (cachedResponse !== null && typeof cachedResponse === 'object') {
-      return Promise.resolve(adaptResponse(cachedResponse.value, replyOptions));
+      return adaptResponse(cachedResponse.value, replyOptions);
     }
 
     const { replyStorage } = this;
@@ -1308,8 +1371,7 @@ class AMQPTransport extends EventEmitter {
    */
   _onClose = (err) => {
     // emit connect event through log
-    this.log.error('connection is closed. Had an error:', err || '<n/a>');
-
+    this.log.warn({ err }, 'connection is closed');
     // re-emit close event
     this.emit('close', err);
   };
