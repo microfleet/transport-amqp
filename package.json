@@ -33,7 +33,7 @@
     "@babel/plugin-proposal-object-rest-spread": "^7.5.5",
     "@babel/plugin-transform-strict-mode": "^7.2.0",
     "@babel/register": "^7.5.5",
-    "@makeomatic/deploy": "^8.4.6",
+    "@makeomatic/deploy": "^9.0.0",
     "babel-eslint": "^10.0.3",
     "babel-plugin-istanbul": "^5.2.0",
     "benchmark": "^2.1.4",

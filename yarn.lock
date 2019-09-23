@@ -386,10 +386,10 @@
     alce "1.x.x"
     yargs "14.0.0"
 
-"@makeomatic/deploy@^8.4.6":
-  version "8.4.6"
-  resolved "https://registry.yarnpkg.com/@makeomatic/deploy/-/deploy-8.4.6.tgz#12ca7059a7d4bc9c41720d1fe28a1eedffc37167"
-  integrity sha512-pnUDeBE4n+4OZqQgSeseLBcFgXx2NbwQ611x5HfU2gdN6ckQvrBD1D+ZfdCuPgt4IUgZss/LSEHM/YQ8c3q+eA==
+"@makeomatic/deploy@^9.0.0":
+  version "9.0.0"
+  resolved "https://registry.yarnpkg.com/@makeomatic/deploy/-/deploy-9.0.0.tgz#bddd8a5487098497e88ca3e0eaee2fec26949813"
+  integrity sha512-GSAajZxCD0IS8u5vjK/NX4VS40XQsJbDYz5/UVDpYUNGwYUnQK6OSwA28AbxyW/zEZBG7h2t5v0Bm3VCdzJr7w==
   dependencies:
     "@commitlint/cli" "^8.1.0"
     bluebird "^3.5.5"
@@ -398,7 +398,7 @@
     death "^1.1.0"
     find-up "^4.1.0"
     glob "^7.1.4"
-    husky "^3.0.4"
+    husky "^3.0.5"
     hyperid "^2.0.1"
     is "^3.2.1"
     js-yaml "^3.13.1"
@@ -407,7 +407,7 @@
     lodash.set "^4.3.2"
     ms-conf "^5.0.2"
     npm-path "^2.0.4"
-    pino "^5.13.2"
+    pino "^5.13.3"
     read-pkg "^5.2.0"
     rimraf "^3.0.0"
     semantic-release "15.13.24"
@@ -2538,6 +2538,11 @@ fast-safe-stringify@^2.0.6:
   resolved "https://registry.yarnpkg.com/fast-safe-stringify/-/fast-safe-stringify-2.0.6.tgz#04b26106cc56681f51a044cfc0d76cf0008ac2c2"
   integrity sha512-q8BZ89jjc+mz08rSxROs8VsrBBcn1SIw1kq9NjolL509tkABRk9io01RAjSaEv1Xb2uFLt8VtRiZbGp5H8iDtg==
 
+fast-safe-stringify@^2.0.7:
+  version "2.0.7"
+  resolved "https://registry.yarnpkg.com/fast-safe-stringify/-/fast-safe-stringify-2.0.7.tgz#124aa885899261f68aedb42a7c080de9da608743"
+  integrity sha512-Utm6CdzT+6xsDk2m8S6uL8VHxNwI6Jub+e9NYTcAms28T84pTa25GJQV9j0CY0N1rM8hK4x6grpF2BQf+2qwVA==
+
 fastq@^1.6.0:
   version "1.6.0"
   resolved "https://registry.yarnpkg.com/fastq/-/fastq-1.6.0.tgz#4ec8a38f4ac25f21492673adb7eae9cfef47d1c2"
@@ -3143,10 +3148,10 @@ humanize-ms@^1.2.1:
   dependencies:
     ms "^2.0.0"
 
-husky@^3.0.4:
-  version "3.0.4"
-  resolved "https://registry.yarnpkg.com/husky/-/husky-3.0.4.tgz#10a48ac11ab50859b0939750fa0b4e07ad0bf669"
-  integrity sha512-7Rnt8aJfy+MlV28snmYK7O7vWwtOfeVxV6KhLpUFXlmx5ukQ1nQmNUB7QsAwSgdySB5X+bm7q7JIRgazqBUzKA==
+husky@^3.0.5:
+  version "3.0.5"
+  resolved "https://registry.yarnpkg.com/husky/-/husky-3.0.5.tgz#d7db27c346645a8dc52df02aa534a377ad7925e0"
+  integrity sha512-cKd09Jy9cDyNIvAdN2QQAP/oA21sle4FWXjIMDttailpLAYZuBE7WaPmhrkj+afS8Sj9isghAtFvWSQ0JiwOHg==
   dependencies:
     chalk "^2.4.2"
     cosmiconfig "^5.2.1"
@@ -5620,6 +5625,18 @@ pino@^5.13.2:
   dependencies:
     fast-redact "^1.4.4"
     fast-safe-stringify "^2.0.6"
+    flatstr "^1.0.9"
+    pino-std-serializers "^2.3.0"
+    quick-format-unescaped "^3.0.2"
+    sonic-boom "^0.7.5"
+
+pino@^5.13.3:
+  version "5.13.3"
+  resolved "https://registry.yarnpkg.com/pino/-/pino-5.13.3.tgz#26cd6f69b4bd03d6408af28eddcd9313687f143d"
+  integrity sha512-FL12DKlPwBlbhztlUz6kseR03PRR8nD+wvLdN/Sji9UiBYYfSjX+k8ocU7/NwW55JdFRONTn3iACoelXnMFVVQ==
+  dependencies:
+    fast-redact "^1.4.4"
+    fast-safe-stringify "^2.0.7"
     flatstr "^1.0.9"
     pino-std-serializers "^2.3.0"
     quick-format-unescaped "^3.0.2"
