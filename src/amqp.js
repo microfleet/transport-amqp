@@ -188,20 +188,20 @@ function buildResponse(message, properties) {
   };
 }
 
+const extendMessageProperties = [
+  'deliveryTag',
+  'redelivered',
+  'exchange',
+  'routingKey',
+  'weight',
+];
+
+const error406 = { replyCode: 406 };
+
 /**
  * @class AMQPTransport
  */
 class AMQPTransport extends EventEmitter {
-  static extendMessageProperties = [
-    'deliveryTag',
-    'redelivered',
-    'exchange',
-    'routingKey',
-    'weight',
-  ];
-
-  static error406 = { replyCode: 406 };
-
   /**
    * Instantiate AMQP Transport
    * @param  {Object} opts, defaults to {}
@@ -239,6 +239,10 @@ class AMQPTransport extends EventEmitter {
     this._queues = new WeakMap();
     this._reconnectionHandlers = new WeakMap();
     this._boundEmit = this.emit.bind(this);
+    this._onConsume = this._onConsume.bind(this);
+    this._on406 = this._on406.bind(this);
+    this._onClose = this._onClose.bind(this);
+    this._onConnect = this._onConnect.bind(this);
 
     // Form app id string for debugging
     this._appID = {
@@ -384,7 +388,7 @@ class AMQPTransport extends EventEmitter {
 
     await Promise
       .resolve(queue.declareAsync())
-      .catch(AMQPTransport.error406, this._on406.bind(this, params))
+      .catch(error406, this._on406.bind(this, params))
       .tapCatch((err) => {
         log.warn({ err, queue: params.queue }, 'failed to init queue');
       });
@@ -731,7 +735,7 @@ class AMQPTransport extends EventEmitter {
     return this._amqp
       .exchangeAsync(params)
       .call('declareAsync')
-      .catch(AMQPTransport.error406, this._on406.bind(this, params));
+      .catch(error406, this._on406.bind(this, params));
   }
 
   /**
@@ -1211,7 +1215,7 @@ class AMQPTransport extends EventEmitter {
    *  - @param {Function} reject(): function: only used when prefetchCount is specified
    *  - @param {Function} retry(): function: only used when prefetchCount is specified
    */
-  _onConsume = (_router) => {
+  _onConsume(_router) {
     assert(is.fn(_router), '`router` must be a function');
 
     // use bind as it is now fast
@@ -1230,7 +1234,7 @@ class AMQPTransport extends EventEmitter {
       // parsed input data
       const message = await parseInput(incoming.raw, contentType, contentEncoding);
       // useful message properties
-      const props = { ...properties, ...pick(incoming, AMQPTransport.extendMessageProperties) };
+      const props = { ...properties, ...pick(incoming, extendMessageProperties) };
 
       // pass to the consumer message router
       // message - properties - incoming
@@ -1238,7 +1242,7 @@ class AMQPTransport extends EventEmitter {
       //  and everything else from amqp-coffee
       setImmediate(router, message, props, incoming);
     };
-  };
+  }
 
   /**
    * Distributes messages from a private queue
@@ -1341,14 +1345,14 @@ class AMQPTransport extends EventEmitter {
    * @param  {Object} params - exchange params
    * @param  {Error}  err    - 406 Conflict Error.
    */
-  _on406 = (params, err) => {
+  _on406(params, err) {
     this.log.warn({ params }, '[406] error declaring exchange/queue:', err.replyText);
-  };
+  }
 
   /**
    * 'ready' event from amqp-coffee lib, perform queue recreation here
    */
-  _onConnect = () => {
+  _onConnect() {
     const { serverProperties } = this._amqp;
     const { cluster_name: clusterName, version } = serverProperties;
 
@@ -1363,17 +1367,17 @@ class AMQPTransport extends EventEmitter {
 
     // re-emit ready
     this.emit('ready');
-  };
+  }
 
   /**
    * Pass in close event
    */
-  _onClose = (err) => {
+  _onClose(err) {
     // emit connect event through log
     this.log.warn({ err }, 'connection is closed');
     // re-emit close event
     this.emit('close', err);
-  };
+  }
 }
 
 // expose static connectors

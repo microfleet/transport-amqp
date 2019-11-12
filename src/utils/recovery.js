@@ -10,36 +10,6 @@ const Joi = require('@hapi/joi');
  * @param  {number} settings.*.factor - Exponential factor.
  */
 class Backoff {
-  static schema = Joi.object({
-    private: Joi.object({
-      min: Joi.number().min(0)
-        .description('min delay for attempt #1')
-        .default(250),
-
-      max: Joi.number().min(0)
-        .description('max delay')
-        .default(1000),
-
-      factor: Joi.number().min(1)
-        .description('exponential increase factor')
-        .default(1.2),
-    }).default(),
-
-    consumed: Joi.object({
-      min: Joi.number().min(0)
-        .description('min delay for attempt #1')
-        .default(500),
-
-      max: Joi.number().min(0)
-        .description('max delay')
-        .default(5000),
-
-      factor: Joi.number().min(1)
-        .description('exponential increase factor')
-        .default(1.2),
-    }).default(),
-  });
-
   constructor(settings) {
     this.settings = Object.setPrototypeOf({ ...settings }, null);
   }
@@ -54,5 +24,35 @@ class Backoff {
     return Math.min(Math.round((Math.random() + 1) * min * Math.pow(factor, attempt - 1)), max);
   }
 }
+
+Backoff.schema = Joi.object({
+  private: Joi.object({
+    min: Joi.number().min(0)
+      .description('min delay for attempt #1')
+      .default(250),
+
+    max: Joi.number().min(0)
+      .description('max delay')
+      .default(1000),
+
+    factor: Joi.number().min(1)
+      .description('exponential increase factor')
+      .default(1.2),
+  }).default(),
+
+  consumed: Joi.object({
+    min: Joi.number().min(0)
+      .description('min delay for attempt #1')
+      .default(500),
+
+    max: Joi.number().min(0)
+      .description('max delay')
+      .default(5000),
+
+    factor: Joi.number().min(1)
+      .description('exponential increase factor')
+      .default(1.2),
+  }).default(),
+});
 
 module.exports = Backoff;
