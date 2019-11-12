@@ -13,24 +13,30 @@ class Backoff {
   static schema = Joi.object({
     private: Joi.object({
       min: Joi.number().min(0)
-        .default(250, 'min delay for attempt #1'),
+        .description('min delay for attempt #1')
+        .default(250),
 
       max: Joi.number().min(0)
-        .default(1000, 'max delay'),
+        .description('max delay')
+        .default(1000),
 
       factor: Joi.number().min(1)
-        .default(1.2, 'exponential increase factor'),
+        .description('exponential increase factor')
+        .default(1.2),
     }).default(),
 
     consumed: Joi.object({
       min: Joi.number().min(0)
-        .default(500, 'min delay for attempt #1'),
+        .description('min delay for attempt #1')
+        .default(500),
 
       max: Joi.number().min(0)
-        .default(5000, 'max delay'),
+        .description('max delay')
+        .default(5000),
 
       factor: Joi.number().min(1)
-        .default(1.2, 'exponential increase factor'),
+        .description('exponential increase factor')
+        .default(1.2),
     }).default(),
   });
 

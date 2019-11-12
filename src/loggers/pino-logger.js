@@ -6,7 +6,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const { write } = stdout;
 stdout.write = (chunk, enc, next) => write.call(stdout, chunk, enc, next);
 
-module.exports = (name = 'ms-amqp-transport', settings = {}) => {
+module.exports = (name = '@microfleet/transport-amqp', settings = {}) => {
   const opts = {
     name,
     level: isProduction ? 'info' : 'trace',

@@ -1,4 +1,5 @@
 const Promise = require('bluebird');
+const { HttpStatusError } = require('common-errors');
 const Proxy = require('@microfleet/amqp-coffee/test/proxy').route;
 const ld = require('lodash');
 const stringify = require('json-stringify-safe');
@@ -108,6 +109,17 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     assert.equal(err.name, 'MSError');
     assert.equal(!!err.stack, true);
     assert.equal(err.message, 'ok');
+  });
+
+  it('serializes & deserializes http status error', () => {
+    const serialized = stringify(new HttpStatusError(202, 'ok'), jsonSerializer);
+    const err = JSON.parse(serialized, jsonDeserializer);
+
+    assert.equal(err.name, 'HttpStatusError');
+    assert.equal(!!err.stack, true);
+    assert.equal(err.message, 'ok');
+    assert.equal(err.statusCode, 202);
+    assert.equal(err.status_code, 202);
   });
 
   it('is able to be initialized', () => {

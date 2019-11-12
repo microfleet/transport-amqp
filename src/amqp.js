@@ -23,13 +23,10 @@ const merge = require('lodash/merge');
 const defaults = require('lodash/defaults');
 const noop = require('lodash/noop');
 const uniq = require('lodash/uniq');
-const extend = require('lodash/extend');
 const pick = require('lodash/pick');
-const set = require('lodash/set');
 
 // local deps
-const Joi = require('@hapi/joi');
-const schema = require('./schema');
+const { Joi, schema } = require('./schema');
 const pkg = require('../package.json');
 const AMQP = require('./utils/transport');
 const ReplyStorage = require('./utils/reply-storage');
@@ -213,16 +210,15 @@ class AMQPTransport extends EventEmitter {
     super();
 
     // prepare configuration
-    const validateResult = Joi.validate(opts, schema, {
+    const config = this.config = Joi.attempt(opts, schema, {
       allowUnknown: true,
     });
 
-    // verify that there was no error
-    assert.ifError(validateResult.error);
-    const config = this.config = validateResult.value;
+    this.config = config;
 
     // prepares logger
     this.log = loggerUtils.prepareLogger(config);
+    this.log.debug({ config }, 'used configuration');
 
     // init cache or pass-through operations
     this.cache = new Cache(config.cache);
@@ -1173,7 +1169,10 @@ class AMQPTransport extends EventEmitter {
     this.log.trace('message pushed into reply queue in %s', latency(time));
 
     // add custom header for routing over amq.headers exchange
-    set(options, 'headers.reply-to', replyTo);
+    if (!options.headers) {
+      options.headers = Object.create(null);
+    }
+    options.headers['reply-to'] = replyTo;
 
     // add opentracing instrumentation
     if (span) {
@@ -1231,7 +1230,7 @@ class AMQPTransport extends EventEmitter {
       // parsed input data
       const message = await parseInput(incoming.raw, contentType, contentEncoding);
       // useful message properties
-      const props = extend({}, properties, pick(incoming, AMQPTransport.extendMessageProperties));
+      const props = { ...properties, ...pick(incoming, AMQPTransport.extendMessageProperties) };
 
       // pass to the consumer message router
       // message - properties - incoming
