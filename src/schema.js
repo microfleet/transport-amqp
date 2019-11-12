@@ -1,45 +1,54 @@
 const baseJoi = require('@hapi/joi');
-const is = require('is');
 const recoverySchema = require('./utils/recovery').schema;
 
-const Joi = baseJoi.extend({
-  name: 'coercedArray',
-  base: baseJoi.array().items(baseJoi.string()).unique(),
-  // eslint-disable-next-line no-unused-vars
-  coerce(value, state, options) {
-    if (is.string(value)) {
-      return [value];
+const Joi = baseJoi.extend((joi) => ({
+  type: 'coercedArray',
+  base: joi.alternatives().try(
+    joi.array().items(joi.string()).unique(),
+    joi.string()
+  ),
+  validate(value) {
+    if (typeof value === 'string') {
+      return { value: [value] };
     }
 
-    return value;
+    return { value };
   },
-});
+}));
 
 const exchangeTypes = Joi.string()
-  .only('direct', 'topic', 'headers', 'fanout');
+  .valid('direct', 'topic', 'headers', 'fanout');
 
-module.exports = Joi
+exports.Joi = Joi;
+
+exports.schema = Joi
   .object({
     name: Joi.string()
-      .default('amqp', 'name of the service when advertising to AMQP'),
+      .description('name of the service when advertising to AMQP')
+      .default('amqp'),
 
     private: Joi.boolean()
-      .default(false, 'when true - initializes private queue right away'),
+      .description('when true - initializes private queue right away')
+      .default(false),
 
     cache: Joi.number().min(0)
-      .default(100, 'size of LRU cache for responses, 0 to disable it'),
+      .description('size of LRU cache for responses, 0 to disable it')
+      .default(100),
 
     timeout: Joi.number()
-      .default(10000, 'default *AndWait timeout'),
+      .description('default *AndWait timeout')
+      .default(10000),
 
     debug: Joi.boolean()
-      .default(process.env.NODE_ENV === 'development', 'enables debug messages'),
+      .description('enables debug messages')
+      .default(process.env.NODE_ENV !== 'production'),
 
     listen: Joi.coercedArray()
       .description('attach default queue to these routes on default exchange'),
 
     version: Joi.string()
-      .default('n/a', 'advertise end-client service version'),
+      .description('advertise end-client service version')
+      .default('n/a'),
 
     neck: Joi.number().min(0)
       .description('if defined - queues will enter QoS mode with required ack & prefetch size of neck'),
@@ -57,49 +66,62 @@ module.exports = Joi
               port: Joi.number().required(),
             }))
           )
-          .default('localhost', 'rabbitmq host'),
+          .description('rabbitmq host')
+          .default('localhost'),
 
         port: Joi.number()
-          .default(5672, 'rabbitmq port'),
+          .description('rabbitmq port')
+          .default(5672),
 
         heartbeat: Joi.number()
-          .default(10000, 'heartbeat check'),
+          .description('heartbeat check')
+          .default(10000),
 
         login: Joi.string()
-          .default('guest', 'rabbitmq login'),
+          .description('rabbitmq login')
+          .default('guest'),
 
         password: Joi.string()
-          .default('guest', 'rabbitmq password'),
+          .description('rabbitmq password')
+          .default('guest'),
 
         vhost: Joi.string()
-          .default('/', 'rabbitmq virtual host'),
+          .description('rabbitmq virtual host')
+          .default('/'),
 
         temporaryChannelTimeout: Joi.number()
-          .default(6000, 'temporary channel close time with no activity'),
+          .description('temporary channel close time with no activity')
+          .default(6000),
 
         reconnect: Joi.boolean()
-          .default(true, 'enable auto-reconnect'),
+          .description('enable auto-reconnect')
+          .default(true),
 
         reconnectDelayTime: Joi.number()
-          .default(500, 'reconnect delay time'),
+          .description('reconnect delay time')
+          .default(500),
 
         hostRandom: Joi.boolean()
-          .default(false, 'select host to connect to randomly'),
+          .description('select host to connect to randomly')
+          .default(false),
 
         ssl: Joi.boolean()
-          .default(false, 'whether to use SSL'),
+          .description('whether to use SSL')
+          .default(false),
 
         sslOptions: Joi.object()
           .description('ssl options'),
 
         noDelay: Joi.boolean()
-          .default(true, 'disable Nagle\'s algorithm'),
+          .description('disable Nagle\'s algorithm')
+          .default(true),
 
         clientProperties: Joi
           .object({
             capabilities: Joi.object({
               consumer_cancel_notify: Joi.boolean()
-                .default(true, 'whether to react to cancel events'),
+                .description('whether to react to cancel events')
+                .default(true),
             }).default(),
           })
           .description('options for advertising client properties')
@@ -114,50 +136,63 @@ module.exports = Joi
 
     exchange: Joi.string()
       .allow('')
-      .default('node-services', 'default exchange for communication'),
+      .description('default exchange for communication')
+      .default('node-services'),
 
     exchangeArgs: Joi
       .object({
         autoDelete: Joi.boolean()
-          .default(false, 'do not autoDelete exchanges'),
+          .description('do not autoDelete exchanges')
+          .default(false),
 
         noWait: Joi.boolean()
-          .default(false, 'whether not to wait for declare response'),
+          .description('whether not to wait for declare response')
+          .default(false),
 
         internal: Joi.boolean()
-          .default(false, 'whether to set internal bit'),
+          .description('whether to set internal bit')
+          .default(false),
 
         type: exchangeTypes
-          .default('topic', 'type of the exchange'),
+          .description('type of the exchange')
+          .default('topic'),
 
         durable: Joi.boolean()
-          .default(true, 'whether to preserve exchange on rabbitmq restart'),
+          .description('whether to preserve exchange on rabbitmq restart')
+          .default(true),
       })
       .default(),
 
     bindPersistantQueueToHeadersExchange: Joi.boolean()
-      .default(false, 'whether to bind queues created by .createConsumedQueue to headersExchange'),
+      .description('whether to bind queues created by .createConsumedQueue to headersExchange')
+      .default(false),
 
     headersExchange: Joi
       .object({
         exchange: Joi.string()
-          .default('amq.match', 'default headers exchange to use, should be different from DLX headers exchange'),
+          .description('default headers exchange to use, should be different from DLX headers exchange')
+          .default('amq.match'),
 
         autoDelete: Joi.boolean()
-          .default(false, 'do not autoDelete exchanges'),
+          .description('do not autoDelete exchanges')
+          .default(false),
 
         noWait: Joi.boolean()
-          .default(false, 'whether not to wait for declare response'),
+          .description('whether not to wait for declare response')
+          .default(false),
 
         internal: Joi.boolean()
-          .default(false, 'whether to set internal bit'),
+          .description('whether to set internal bit')
+          .default(false),
 
         type: Joi.string()
-          .only('headers')
-          .default('headers', 'type of the exchange'),
+          .valid('headers')
+          .description('type of the exchange')
+          .default('headers'),
 
         durable: Joi.boolean()
-          .default(true, 'whether to preserve exchange on rabbitmq restart'),
+          .description('whether to preserve exchange on rabbitmq restart')
+          .default(true),
       })
       .description('this exchange is used to support delayed retry with QoS exchanges')
       .default(),
@@ -176,7 +211,8 @@ module.exports = Joi
         passive: Joi.boolean(),
 
         durable: Joi.boolean()
-          .default(true, 'survive restarts & use disk storage'),
+          .description('survive restarts & use disk storage')
+          .default(true),
 
         arguments: Joi
           .object({
@@ -202,12 +238,14 @@ module.exports = Joi
         passive: Joi.boolean(),
 
         durable: Joi.boolean()
-          .default(true, 'survive restarts & use disk storage'),
+          .description('survive restarts & use disk storage')
+          .default(true),
 
         arguments: Joi
           .object({
             'x-expires': Joi.number().min(0)
-              .default(1800000, 'delete the private queue after it\'s been unused for 3 minutes'),
+              .description('delete the private queue after it\'s been unused for 3 minutes')
+              .default(1800000),
 
             'x-max-priority': Joi.number().min(2).max(255)
               .description('setup priority queues where messages will be delivery based on priority level'),
@@ -220,18 +258,22 @@ module.exports = Joi
     dlx: Joi
       .object({
         enabled: Joi.boolean()
-          .default(true, 'enabled DLX by default for fast-reply when messages are dropped'),
+          .description('enabled DLX by default for fast-reply when messages are dropped')
+          .default(true),
 
         params: Joi
           .object({
             exchange: Joi.string()
-              .default('amq.headers', 'dead letters are redirected here'),
+              .description('dead letters are redirected here')
+              .default('amq.headers'),
 
             type: exchangeTypes
-              .default('headers', 'must be headers for proper built-in matching'),
+              .description('must be headers for proper built-in matching')
+              .default('headers'),
 
             autoDelete: Joi.boolean()
-              .default(false, 'DLX persistance'),
+              .description('DLX persistance')
+              .default(false),
           })
           .default(),
       })
@@ -240,17 +282,21 @@ module.exports = Joi
 
     defaultOpts: Joi
       .object({
-        deliveryMode: Joi.number().only(1, 2)
-          .default(1, '1 - transient, 2 - saved on disk'),
+        deliveryMode: Joi.number().valid(1, 2)
+          .description('1 - transient, 2 - saved on disk')
+          .default(1),
 
         confirm: Joi.boolean()
-          .default(false, 'whether to wait for commit confirmation'),
+          .description('whether to wait for commit confirmation')
+          .default(false),
 
         mandatory: Joi.boolean()
-          .default(false, 'when true and message cant be routed to a queue - exception returned, otherwise its dropped'),
+          .description('when true and message cant be routed to a queue - exception returned, otherwise its dropped')
+          .default(false),
 
         immediate: Joi.boolean()
-          .default(false, 'not implemented by rabbitmq'),
+          .description('not implemented by rabbitmq')
+          .default(false),
 
         contentType: Joi.string()
           .default('application/json')
@@ -264,13 +310,14 @@ module.exports = Joi
           .default(),
 
         simpleResponse: Joi.boolean()
-          .default(true, 'whether to return only response data or include headers etc.'),
+          .description('whether to return only response data or include headers etc.')
+          .default(true),
       })
       .description('default options when publishing messages')
       .default(),
   })
   .assert(
-    'dlx.params.exchange',
+    '.dlx.params.exchange',
     Joi.any().invalid(Joi.ref('headersExchange.exchange')),
     'must use different headers exchanges'
   );
