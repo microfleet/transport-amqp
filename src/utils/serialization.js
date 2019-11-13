@@ -58,8 +58,12 @@ function deserializeError(error) {
 }
 
 function jsonSerializer(key, value) {
-  if (is.instance(value, Error)) {
+  if (value instanceof Error) {
     return serializeError(value);
+  }
+
+  if (value && value.error instanceof Error) {
+    value.error = serializeError(value.error);
   }
 
   return value;

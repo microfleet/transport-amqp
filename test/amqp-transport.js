@@ -166,12 +166,16 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       cache: 100,
       exchange: configuration.exchange,
       queue: 'test-queue',
-      listen: 'test.default',
+      listen: ['test.default', 'test.throw'],
       connection: configuration.connection,
     };
 
-    const amqp = await AMQPTransport.connect(opts, (message, headers, actions, callback) => {
-      callback(null, {
+    const amqp = await AMQPTransport.connect(opts, (message, properties, actions, callback) => {
+      if (properties.routingKey === 'test.throw') {
+        return callback(new HttpStatusError(202, 'ok'));
+      }
+
+      return callback(null, {
         resp: typeof message === 'object' ? message : `${message}-response`,
         time: process.hrtime(),
       });
@@ -186,6 +190,15 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
       this[name] && this[name].close()
     ))
   ));
+
+  it('error is correctly deserialized', async () => {
+    await assert.rejects(this.amqp.publishAndWait('test.throw', {}), {
+      name: 'HttpStatusError',
+      message: 'ok',
+      statusCode: 202,
+      status_code: 202,
+    });
+  });
 
   it('is able to publish to route consumer', async () => {
     const response = await this.amqp
