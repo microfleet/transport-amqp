@@ -1037,7 +1037,9 @@ class AMQPTransport extends EventEmitter {
 
   _replyOptions(options = {}) {
     return {
-      simpleResponse: options.simpleResponse === undefined ? this._defaultOpts.simpleResponse : options.simpleResponse,
+      simpleResponse: options.simpleResponse === undefined
+        ? this._defaultOpts.simpleResponse
+        : options.simpleResponse,
     };
   }
 
@@ -1126,6 +1128,8 @@ class AMQPTransport extends EventEmitter {
    * @return {Promise}
    */
   async createMessageHandler(routing, message, options, publishMessage, span) {
+    assert(typeof options === 'object' && options !== null, 'options must be an object');
+
     const replyTo = options.replyTo || this._replyTo;
     const time = process.hrtime();
     const replyOptions = this._replyOptions(options);
@@ -1193,10 +1197,10 @@ class AMQPTransport extends EventEmitter {
         expiration: Math.ceil(timeout * 0.9).toString(),
       }, span)
       .tap(() => {
-        this.log.trace('message published in %s', latency(time));
+        this.log.trace({ latency: latency(time) }, 'message published');
       })
       .catch((err) => {
-        this.log.error('error sending message', err);
+        this.log.error({ err }, 'error sending message');
         replyStorage.reject(correlationId, err);
       });
 
