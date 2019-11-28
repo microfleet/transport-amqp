@@ -881,7 +881,15 @@ class AMQPTransport extends EventEmitter {
       ? _message
       : await serialize(_message, publishOptions);
 
-    const request = await this._amqp
+    const { _amqp: amqp } = this;
+    if (!amqp) {
+      // NOTE: if this happens - it means somebody
+      // called (publish|send)* after amqp.close()
+      // or there is an auto-retry policy that does the same
+      throw new InvalidOperationError('connection was closed');
+    }
+
+    const request = await amqp
       .publishAsync(exchange, queueOrRoute, message, publishOptions);
 
     // emit original message
