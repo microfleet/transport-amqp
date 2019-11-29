@@ -1,11 +1,16 @@
 const Promise = require('bluebird');
 
+const kPromisified = Symbol.for('@microfleet/amqp-promisified');
+
 // Promisify stuff
 ['Exchange', 'Queue', 'Connection', 'Consumer', 'Publisher'].forEach((name) => {
   const path = require.resolve(`@microfleet/amqp-coffee/bin/src/lib/${name}`);
-  /* eslint-disable import/no-dynamic-require */
-  Promise.promisifyAll(require(path).prototype);
-  /* eslint-enable import/no-dynamic-require */
+  const mod = require(path); // eslint-disable-line import/no-dynamic-require
+
+  if (mod[kPromisified]) return;
+
+  Promise.promisifyAll(mod.prototype);
+  mod[kPromisified] = true;
 });
 
 const amqp = require('@microfleet/amqp-coffee');
