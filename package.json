@@ -33,7 +33,7 @@
     "@babel/plugin-transform-strict-mode": "^7.7.4",
     "@babel/register": "^7.7.4",
     "@makeomatic/deploy": "^9.5.0",
-    "babel-plugin-istanbul": "^5.2.0",
+    "babel-plugin-istanbul": "^6.0.0",
     "benchmark": "^2.1.4",
     "chai": "^4.2.0",
     "codecov": "^3.6.1",
