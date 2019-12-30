@@ -47,7 +47,7 @@
     "jaeger-client": "^3.17.1",
     "microtime": "^3.0.0",
     "mocha": "^6.2.2",
-    "nyc": "^14.1.1",
+    "nyc": "^15.0.0",
     "sinon": "^7.5.0",
     "stdout-stream": "^1.4.1"
   },
