@@ -1,5 +1,5 @@
 {
-  "branch": "master",
+  "branches": ["master"],
   "verifyConditions": ["@semantic-release/npm", "@semantic-release/github"],
   "analyzeCommits": {
     "preset": "angular",

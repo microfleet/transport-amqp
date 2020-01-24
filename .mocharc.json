@@ -1,0 +1,5 @@
+{
+  "bail": true,
+  "timeout": 60000,
+  "report": "spec"
+}
