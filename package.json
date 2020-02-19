@@ -43,7 +43,7 @@
     "eslint-plugin-import": "^2.20.0",
     "eslint-plugin-mocha": "^6.2.2",
     "eslint-plugin-promise": "^4.2.1",
-    "eslint-plugin-unicorn": "^15.0.1",
+    "eslint-plugin-unicorn": "^16.0.0",
     "jaeger-client": "^3.17.1",
     "microtime": "^3.0.0",
     "mocha": "^7.0.0",
