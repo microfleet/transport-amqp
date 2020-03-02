@@ -70,7 +70,7 @@
     "object-hash": "^2.0.1",
     "opentracing": "^0.14.4",
     "pino": "^5.16.0",
-    "uuid": "^3.4.0"
+    "uuid": "^7.0.0"
   },
   "files": [
     "lib/",
