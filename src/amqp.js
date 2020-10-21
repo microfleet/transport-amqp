@@ -45,7 +45,6 @@ const { jsonSerializer, jsonDeserializer } = require('./utils/serialization');
 const { AmqpDLXError } = generateErrorMessage;
 const { wrapError, setQoS } = helpers;
 const { Tags, FORMAT_TEXT_MAP } = opentracing;
-const PARSE_ERR = new ValidationError('couldn\'t deserialize input', 500, 'message.raw');
 
 /**
  * Wraps regular in a bluebird promise
@@ -127,7 +126,7 @@ const initRoutingFn = (messageHandler, transport) => {
 
   /**
    * Initiates consumer message handler.
-   * @param  {mixed} message - Data passed from the publisher.
+   * @param  {mixed} message - RequestBody passed from the publisher.
    * @param  {Object} properties - AMQP Message properties.
    * @param  {Object} raw - Original AMQP message.
    * @param  {Function} [raw.ack] - Acknowledge if nack is `true`.
@@ -1317,13 +1316,6 @@ class AMQPTransport extends EventEmitter {
     return future.resolve(adaptResponse(response, future.replyOptions));
   }
 
-  /**
-   * Parses AMQP message
-   * @param  {Buffer} _data
-   * @param  {String} [contentType='application/json']
-   * @param  {String} [contentEncoding='plain']
-   * @return {Object}
-   */
   async _parseInput(_data, contentType = 'application/json', contentEncoding = 'plain') {
     let data;
 
