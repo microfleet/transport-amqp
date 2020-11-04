@@ -1,11 +1,15 @@
-const Errors = require('common-errors');
+import Errors from 'common-errors'
+import { MSError } from './serialization'
+
+import type { LoggerLike } from '../schema/logger-like'
+import type { AMQP } from './transport'
 
 // error generator
-module.exports = function generateErrorMessage(routing, timeout) {
-  return `job timed out on routing ${routing} after ${timeout} ms`;
+export function generateErrorMessage(routing: string, timeout: any) {
+  return `job timed out on routing ${routing} after ${timeout} ms`
 };
 
-module.exports.AmqpDLXError = Errors.helpers.generateClass('AmqpDLXError', {
+export const AmqpDLXError = Errors.helpers.generateClass('AmqpDLXError', {
   args: ['xDeath', 'originalMessage'],
 
   // https://www.rabbitmq.com/dlx.html
@@ -35,29 +39,69 @@ module.exports.AmqpDLXError = Errors.helpers.generateClass('AmqpDLXError', {
    *    Note that the array is sorted most-recent-first, so the most recent dead-lettering will be recorded in the first entry.
    */
   generateMessage() {
-    const message = [];
+    const message: string[] = []
 
+    // TODO rejection entry type
+    // @ts-expect-error
     this.xDeath.forEach((rejectionEntry) => {
       switch (rejectionEntry.reason) {
         case 'rejected':
-          message.push(`Rejected from ${rejectionEntry.queue} ${rejectionEntry.count} time(s)`);
-          break;
+          message.push(`Rejected from ${rejectionEntry.queue} ${rejectionEntry.count} time(s)`)
+          break
 
         case 'expired':
           message.push(`Expired from queue "${rejectionEntry.queue}" with routing keys `
             + `${JSON.stringify(rejectionEntry['routing-keys'])} `
-            + `after ${rejectionEntry['original-expiration']}ms ${rejectionEntry.count} time(s)`);
-          break;
+            + `after ${rejectionEntry['original-expiration']}ms ${rejectionEntry.count} time(s)`)
+          break
 
         case 'maxlen':
-          message.push(`Overflown ${rejectionEntry.queue} ${rejectionEntry.count} time(s)`);
-          break;
+          message.push(`Overflown ${rejectionEntry.queue} ${rejectionEntry.count} time(s)`)
+          break
 
         default:
-          message.push(`Unexpected DLX reason: ${rejectionEntry.reason}`);
+          message.push(`Unexpected DLX reason: ${rejectionEntry.reason}`)
       }
-    });
+    })
 
-    return message.join('. ');
+    return message.join('. ')
   },
-});
+})
+
+// error data that is going to be copied
+const copyErrorData = [
+  'code', 'name', 'errors',
+  'field', 'reason', 'stack',
+]
+
+export type ErrorLike = Record<string, any> & {
+  message?: string
+}
+
+/**
+ * Wraps response error
+ * @param {Error} originalError
+ * @returns {Error}
+ */
+export const wrapError = (originalError: Error | ErrorLike): Error => {
+  if (originalError instanceof Error) {
+    return originalError
+  }
+
+  // this only happens in case of .toJSON on error object
+  const error = new MSError(originalError.message)
+
+  for (const fieldName of copyErrorData) {
+    const mixedData = originalError[fieldName]
+    if (mixedData !== undefined && mixedData !== null) {
+      // @ts-expect-error
+      error[fieldName] = mixedData
+    }
+  }
+
+  return error
+}
+
+export function on406(this: { log: LoggerLike }, params: any, err: AMQP.ConsumerError) {
+  this.log.warn({ params }, '[406] error declaring exchange/queue:', err.replyText)
+}

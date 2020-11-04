@@ -1,5 +1,6 @@
 {
-  "bail": true,
+  "bail": false,
   "timeout": 60000,
-  "report": "spec"
+  "report": "spec",
+  "require": "ts-node/register"
 }
