@@ -2,7 +2,7 @@ import is from '@sindresorhus/is'
 
 import { AMQP } from '../utils/transport'
 import { Queue } from './queue'
-import { EntityStore } from '../utils/entity-store'
+import { EntityStore } from '../entity-store'
 import { QueueConfOpts } from './schema'
 import { getInstance as getLoggerInstance } from '../loggers'
 

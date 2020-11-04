@@ -1,8 +1,9 @@
 import { Tags, FORMAT_TEXT_MAP } from 'opentracing'
 
 import { AMQPTransport } from '../amqp-transport'
+import { PublishOptions } from '../message-options'
 import { safeJSONParse } from './parsing'
-import { MessageHandler, PublishingOpts, RawMessage } from '../types'
+import { MessageHandler, RawMessage } from '../types'
 
 /**
  * Routing function HOC with reply RPC enhancer
@@ -24,7 +25,7 @@ export const initRoutingFn = <
    * @param  {mixed} data - Response data.
    * @returns {Promise<*>}
    */
-  function responseHandler(this: undefined, raw: RawMessage<RequestBody>, error: Error, data: ResponseBody) {
+  function responseHandler(this: undefined, raw: RawMessage<RequestBody>, error?: Error, data?: ResponseBody) {
     const { properties, span } = raw
     return !properties.replyTo || !properties.correlationId
       ? transport.noop(error, data, span, raw)
@@ -44,7 +45,7 @@ export const initRoutingFn = <
   return function router(
     this: AMQPTransport,
     message: RequestBody,
-    properties: PublishingOpts,
+    properties: PublishOptions,
     raw: RawMessage<RequestBody>
   ) {
     // add instrumentation
@@ -55,19 +56,22 @@ export const initRoutingFn = <
       FORMAT_TEXT_MAP,
       properties.headers ?? {}
     )
-    const span = this.tracer.startSpan(`onConsume:${properties.routingKey}`, {
-      childOf,
-    });
 
-    span.addTags({
-      [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_SERVER,
-      [Tags.PEER_SERVICE]: appId.name,
-      [Tags.PEER_HOSTNAME]: appId.host,
-    })
+    if (childOf) {
+      const span = this.tracer.startSpan(`onConsume:${properties.routingKey}`, {
+        childOf,
+      })
 
-    // define span in the original message
-    // so that userland has access to it
-    raw.span = span
+      span.addTags({
+        [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_SERVER,
+        [Tags.PEER_SERVICE]: appId.name,
+        [Tags.PEER_HOSTNAME]: appId.host,
+      })
+
+      // define span in the original message
+      // so that userland has access to it
+      raw.span = span
+    }
 
     return messageHandler(
       message,

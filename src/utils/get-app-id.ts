@@ -10,12 +10,10 @@ export interface AppID {
   version: string
 }
 
-export const getAppID = (it: AMQPTransport): AppID => {
-  return {
-    pid: process.pid,
-    name: it.config.name,
-    host: hostname(),
-    version: it.config.version,
-    utils_version: pkg.version,
-  }
-}
+export const getAppID = (it: AMQPTransport): AppID => ({
+  pid: process.pid,
+  name: it.config.name,
+  host: hostname(),
+  version: it.config.version,
+  utils_version: pkg.version,
+})

@@ -2,7 +2,7 @@ import pick from 'lodash/fp/pick'
 
 import { AMQP } from '../utils/transport'
 import { parseInput } from '../utils/parsing'
-import { EntityStore } from '../utils/entity-store'
+import { EntityStore } from '../entity-store'
 import { getInstance as getLoggerInstance } from '../loggers'
 
 import { Consumer, ConsumerOpts } from './consumer'
@@ -85,7 +85,7 @@ export class ConsumerFactory extends EntityStore<Consumer> {
   #createMessageHandler = <
     RequestBody extends any = any,
     ResponseBody extends any = any
-    >(
+  >(
     onMessage: MessageHandler<RequestBody, ResponseBody>,
     onMessagePre?: MessagePreHandler<RequestBody>
   ) => (

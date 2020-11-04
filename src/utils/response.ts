@@ -1,4 +1,4 @@
-import { MessageHeaders, PublishingOpts } from '../types'
+import { MessageHeaders, PublishOptions, ReplyOptions } from '../message-options'
 
 export interface Message<
   Body extends any,
@@ -14,10 +14,6 @@ export interface Response<
 > {
   data: Body,
   headers: Headers
-}
-
-export interface ReplyOptions {
-  simpleResponse?: boolean
 }
 
 /**
@@ -46,11 +42,11 @@ export function adaptResponse<Body extends any>(
  */
 export function buildResponse<
   Body extends any,
-  Properties extends PublishingOpts = PublishingOpts,
+  Properties extends PublishOptions = PublishOptions,
 >(
   message: Message<Body>,
   properties: Properties
-) {
+): Response<Body, Properties['headers']> {
   const { headers } = properties
   const { data } = message
 

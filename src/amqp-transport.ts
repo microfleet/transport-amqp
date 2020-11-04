@@ -1,40 +1,59 @@
 import is from '@sindresorhus/is'
 import assert from 'assert'
 
-import { ArgumentError, ConnectionError, InvalidOperationError, NotPermittedError } from 'common-errors'
+import { ArgumentError, ConnectionError, InvalidOperationError, NotPermittedError, ValidationError } from 'common-errors'
 import delay from 'delay'
 import EventEmitter from 'eventemitter3'
 import defaults from 'lodash/defaults'
 import merge from 'lodash/merge'
-import opentracing from 'opentracing'
+import opentracing, { FORMAT_TEXT_MAP, Tags } from 'opentracing'
 import stringify from 'safe-stable-stringify'
+
 import { kReplyHeaders } from './constants'
-import { Consumer, ConsumerFactory, ConsumerOpts, PrivateConsumer } from './consumer'
+import {
+  Consumer,
+  ConsumerOpts,
+  ConsumerFactory,
+  PrivateConsumer
+} from './consumer'
+import { MessageOptions, PublishOptions } from './message-options'
 import { AnyExchangeOpts, ExchangeFactory } from './exchange'
 import { getInstance as getLoggerInstance } from './loggers'
 
 import { Queue, QueueConfOpts, QueueFactory, QueueOpts } from './queue'
+import { PendingReplyConf, ReplyStorage } from './reply-storage'
 
 import { Schema } from './schema'
 import { BackoffPolicy } from './schema/backoff'
+import { SequenceProvider } from './sequence-provider'
+import {
+  WellKnowHeaders,
+  AMQPTransportEvents,
+  PublishMessageHandle,
+  RawMessage,
+} from './types'
 
 import type { LoggerLike } from './schema/logger-like'
-import type { AnyFunction, ConsumedQueue, MessageHandler, PublishingOpts } from './types'
-import { AMQPTransportEvents } from './types'
+import type {
+  AnyFunction,
+  ConsumedQueue,
+  MessageHandler,
+} from './types'
 
-import { Backoff } from './utils/backoff'
-import { Cache } from './utils/cache'
+import { Backoff } from './backoff'
+import { Cache } from './response-cache'
 import { AppID, getAppID } from './utils/get-app-id'
 import { initRoutingFn } from './utils/init-routing-fn'
-import { ReplyStorage } from './utils/reply-storage'
-import { Message, buildResponse, adaptResponse } from './utils/response'
+import { Message, buildResponse, adaptResponse} from './utils/response'
 
 // TODO
 import type { AMQP } from './utils/transport'
 // TODO
 import Transport from './utils/transport'
-import { AmqpDLXError, wrapError } from './utils/error'
 import { latency } from './utils/latency'
+import { AmqpDLXError, wrapError } from './utils/error'
+import { jsonSerializer, serialize } from './utils/serialization'
+import { wrapPromise } from './utils/wrap-promise'
 
 export class AMQPTransport extends EventEmitter {
   public config: Schema
@@ -42,15 +61,16 @@ export class AMQPTransport extends EventEmitter {
 
   readonly #appIDString: string
   readonly #appID: AppID
-  readonly #defaultOpts: PublishingOpts
-  readonly #extraQueueOpts: PublishingOpts = {}
+  readonly #defaultOpts: Partial<PublishOptions>
+  readonly #extraQueueOpts: Partial<PublishOptions> = {}
+  readonly #sequenceProvider: SequenceProvider
 
   #replyTo?: string | false
   #cache: Cache
+  #tracer: opentracing.Tracer
   #recovery: Backoff
   #replyStorage: ReplyStorage
 
-  // TODO right amqp type
   #amqp: AMQP.Instance | null = null
   #queues: QueueFactory
   #consumers: ConsumerFactory
@@ -85,7 +105,7 @@ export class AMQPTransport extends EventEmitter {
   public static async connect<RequestBody, ResponseBody>(
     config: Partial<Schema>,
     messageHandler: MessageHandler<RequestBody, ResponseBody>,
-    opts: Partial<PublishingOpts> = {}
+    opts: Partial<PublishOptions> = {}
   ): Promise<AMQPTransport> {
     const [
       amqp,
@@ -106,7 +126,7 @@ export class AMQPTransport extends EventEmitter {
   public static async multiConnect<RequestBody, ResponseBody>(
     config: Partial<Schema>,
     messageHandler: MessageHandler<RequestBody, ResponseBody>,
-    opts: Partial<PublishingOpts> = {}
+    opts: Partial<PublishOptions> = {}
   ): Promise<AMQPTransport> {
     const [
       amqp,
@@ -139,9 +159,9 @@ export class AMQPTransport extends EventEmitter {
   get amqp() { return this.#amqp }
   get appID() { return this.#appID }
   get appIDString() { return this.#appIDString }
-  // todo
   get isConnected() { return this.amqp?.state === 'open' }
   get isConnecting() { return this.#replyTo === false }
+  get tracer() { return this.#tracer }
 
   /**
    * Instantiate AMQP Transport
@@ -171,13 +191,15 @@ export class AMQPTransport extends EventEmitter {
     // delay settings for reconnect
     this.#recovery = new Backoff(config.recovery)
 
-    // TODO tracer
-    // this.tracer = ....
+    // init open tracer - default one is noop
+    this.#tracer = this.config.tracer ?? new opentracing.Tracer()
 
     this.#defaultOpts = {
       ...config.defaultOpts,
       appId: this.appIDString,
     }
+
+    this.#sequenceProvider = new SequenceProvider()
 
     // DLX config
     if (config.dlx.enabled) {
@@ -217,7 +239,7 @@ export class AMQPTransport extends EventEmitter {
           return reject(err)
         }
 
-        resolve(...args)
+        resolve(args)
       })
 
       this.#amqp.on('ready', this.#onConnect)
@@ -257,9 +279,30 @@ export class AMQPTransport extends EventEmitter {
   async publish<RequestBody extends any>(
     route: string,
     message: RequestBody,
-    options: Partial<PublishingOpts> = {},
-    parentSpan?: opentracing.Span
-  ) {}
+    options: Partial<PublishOptions> = {},
+    parentSpan?: opentracing.Span | opentracing.SpanContext
+  ) {
+    const span = this.tracer.startSpan(`publish:${route}`, {
+      childOf: parentSpan,
+    })
+
+    // prepare exchange
+    const exchange = is.string(options.exchange)
+      ? options.exchange
+      : this.config.exchange
+
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_MESSAGING_PRODUCER,
+      [Tags.MESSAGE_BUS_DESTINATION]: `${exchange}:${route}`,
+    })
+
+    return wrapPromise(span, this.sendToServer(
+      exchange,
+      route,
+      message,
+      options
+    ))
+  }
 
   /**
    * Sends a message and then awaits for response
@@ -275,9 +318,27 @@ export class AMQPTransport extends EventEmitter {
   > (
     route: string,
     message: RequestBody,
-    options: Partial<PublishingOpts> = {},
-    parentSpan?: opentracing.Span
-  ) : Promise<ResponseBody> {}
+    options: Partial<PublishOptions> = {},
+    parentSpan?: opentracing.Span | opentracing.SpanContext
+  ) : Promise<ResponseBody> {
+    // opentracing instrumentation
+    const span = this.tracer.startSpan(`publishAndWait:${route}`, {
+      childOf: parentSpan,
+    })
+
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_CLIENT,
+      [Tags.MESSAGE_BUS_DESTINATION]: route,
+    })
+
+    return wrapPromise(span, this.createMessageHandler(
+      route,
+      message,
+      options,
+      this.publish,
+      span
+    ))
+  }
 
   /**
    * Send message to specified queue directly
@@ -290,9 +351,30 @@ export class AMQPTransport extends EventEmitter {
   async send<RequestBody extends any>(
     queue: string,
     message: RequestBody,
-    options: Partial<PublishingOpts> = {},
-    parentSpan?: opentracing.Span
-  ) {}
+    options: Partial<PublishOptions> = {},
+    parentSpan?: opentracing.Span | opentracing.SpanContext
+  ) {
+    const span = this.tracer.startSpan(`send:${queue}`, {
+      childOf: parentSpan,
+    })
+
+    // prepare exchange
+    const exchange = is.string(options.exchange)
+      ? options.exchange
+      : ''
+
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_MESSAGING_PRODUCER,
+      [Tags.MESSAGE_BUS_DESTINATION]: `${exchange || '<empty>'}:${queue}`,
+    })
+
+    return wrapPromise(span, this.sendToServer(
+      exchange,
+      queue,
+      message,
+      options
+    ))
+  }
 
   /**
    * Send message to specified queue directly and wait for answer
@@ -303,11 +385,181 @@ export class AMQPTransport extends EventEmitter {
    * @param {Span}   parentSpan
    */
   async sendAndWait<RequestBody extends any>(
-    route: string,
+    queue: string,
     message: RequestBody,
-    options: Partial<PublishingOpts> = {},
+    options: Partial<PublishOptions> = {},
+    parentSpan?: opentracing.Span | opentracing.SpanContext
+  ) {
+    // opentracing instrumentation
+    const span = this.tracer.startSpan(`sendAndWait:${queue}`, {
+      childOf: parentSpan,
+    })
+
+    span.addTags({
+      [Tags.SPAN_KIND]: Tags.SPAN_KIND_RPC_CLIENT,
+      [Tags.MESSAGE_BUS_DESTINATION]: queue,
+    })
+
+    return wrapPromise(span, this.createMessageHandler(
+      queue,
+      message,
+      options,
+      this.send
+    ))
+  }
+
+  /**
+   * Low-level publishing method
+   * @param  {string} exchange
+   * @param  {string} queueOrRoute
+   * @param  {mixed} _message
+   * @param  {Object} options
+   * @returns {Promise<*>}
+   */
+  async sendToServer<RequestBody>(
+    exchange: string,
+    queueOrRoute: string,
+    $message: RequestBody,
+    options: Partial<PublishOptions>
+  ) {
+    const publishOptions = MessageOptions.getPublishOptions(
+      options,
+      this.#defaultOpts,
+      this.config.timeout
+    )
+
+    const message = options.skipSerialize === true
+      ? $message
+      : await serialize($message, publishOptions)
+
+    if (!this.#amqp) {
+      // NOTE: if this happens - it means somebody
+      // called (publish|send)* after amqp.close()
+      // or there is an auto-retry policy that does the same
+      throw new InvalidOperationError('connection was closed')
+    }
+
+    const request = await this.#amqp
+      .publishAsync(exchange, queueOrRoute, message, publishOptions)
+
+    // emit original message
+    this.emit(AMQPTransportEvents.Publish, queueOrRoute, $message)
+
+    return request
+  }
+
+  async createMessageHandler<
+    RequestBody,
+    ResponseBody
+  >(
+    routing: string,
+    message: RequestBody,
+    options: Partial<PublishOptions>,
+    publishMessage: PublishMessageHandle<RequestBody>,
     parentSpan?: opentracing.Span
-  ) {}
+  ): Promise<ResponseBody> {
+    assert(is.plainObject(options), 'options must be an object')
+
+    const replyTo = options.replyTo ?? this.#replyTo
+    const time = process.hrtime()
+    const replyOptions = MessageOptions.getReplyOptions(
+      options,
+      this.#defaultOpts
+    )
+
+    // ensure that reply queue exists before sending request
+    if (typeof replyTo !== 'string') {
+      if (replyTo === false) {
+        await this.#awaitPrivateQueue()
+      } else {
+        await this.#createPrivateQueue()
+      }
+
+      return this.createMessageHandler(
+        routing,
+        message,
+        options,
+        publishMessage,
+        parentSpan
+      )
+    }
+
+    // work with cache if options.cache is set and is number
+    // otherwise cachedResponse is always null
+    const cachedResponse = this.#cache.get<ResponseBody>(message, options.cache)
+
+    if (is.object(cachedResponse)) {
+      return adaptResponse(cachedResponse.value, replyOptions)
+    }
+
+    // generate response id
+    const correlationId = options.correlationId ?? this.#sequenceProvider.next()
+    // timeout before RPC times out
+    const timeout = options.timeout ?? this.config.timeout
+
+    // slightly longer timeout, if message was not consumed in time, it will return with expiration
+    const publishPromise = new Promise<ResponseBody>((resolve, reject) => {
+      const reply: PendingReplyConf & { timer: null } = {
+        time,
+        timeout,
+        routing,
+        reject,
+        resolve,
+        replyOptions,
+        cache: cachedResponse,
+        timer: null,
+      }
+
+      // push into RPC request storage
+      this.#replyStorage.push(correlationId, reply)
+    })
+
+    // debugging
+    this.log.trace('message pushed into reply queue in %s', latency(time))
+
+    // add custom header for routing over amq.headers exchange
+    if (!options.headers) {
+      options.headers = {
+        [WellKnowHeaders.ReplyTo]: replyTo
+      }
+    } else {
+      options.headers[WellKnowHeaders.ReplyTo] = replyTo
+    }
+
+    // We don't make a copy of the object to keep it's shape
+    options.replyTo = replyTo
+    options.correlationId = correlationId
+    options.expiration = Math.ceil(timeout * 0.9).toString()
+
+    // add opentracing instrumentation
+    if (parentSpan) {
+      this.#tracer.inject(
+        parentSpan.context(),
+        FORMAT_TEXT_MAP,
+        options.headers
+      )
+    }
+
+    // this is to ensure that queue is not overflown and work will not
+    // be completed later on
+    publishMessage
+      .call(
+        this,
+        routing,
+        message,
+        options,
+        parentSpan
+      )
+      .then(() => {
+        this.log.trace({ latency: latency(time) }, 'message published')
+      })
+      .catch((err: Error) => {
+        this.log.error({ err }, 'error sending message')
+        this.#replyStorage.reject(correlationId, err)
+      })
+
+    return publishPromise
+  }
 
   /**
    * @deprecated
@@ -385,7 +637,7 @@ export class AMQPTransport extends EventEmitter {
       }
     }
 
-    if (config.bindPersistentQueueToHeadersExchange === true) {
+    if (config.bindPersistentQueueToHeadersExchange) {
       for (const route of listen.values()) {
         assert(
           ExchangeFactory.isValidHeadersExchangeRoute(route),
@@ -401,9 +653,9 @@ export class AMQPTransport extends EventEmitter {
       const { log } = this
 
       log.debug({ attempt }, 'establish consumer')
-      const oldConsumer = this.#consumers
+      const oldConsumer = this.#consumers!
         .get(establishConsumer)
-      const oldQueue = this.#queues
+      const oldQueue = this.#queues!
         .get(establishConsumer)
 
       // if we have old consumer
@@ -457,7 +709,6 @@ export class AMQPTransport extends EventEmitter {
   }
 
 
-  // TODO legacy interface
   /**
    * Create queue with specified settings in current connection
    * also emit new event on message in queue
@@ -470,6 +721,7 @@ export class AMQPTransport extends EventEmitter {
       ? {} as ConsumerOpts
       : {
         onMessage: opts.router,
+        onMessagePre: this.#handleMessagePre,
         onError: this.#handleConsumerError,
         onClose: this.#handleConsumerClose,
         onCancel: this.#rebindConsumer,
@@ -495,6 +747,86 @@ export class AMQPTransport extends EventEmitter {
       await delay(to)
       return this.createPrivateQueue(attempt + 1)
     }
+  }
+
+  /**
+   * Noop function with empty correlation id and reply to data
+   * @param  {Error} error
+   * @param  {mixed} data
+   * @param  {Span}  [span]
+   * @param  {AMQPMessage} [raw]
+   */
+  noop(error: Error, data: any, span: opentracing.Span | undefined, raw: RawMessage<any>) {
+    const msg = stringify({ error, data }, jsonSerializer)
+    this.log.debug('when replying to message with %s response could not be delivered', msg)
+
+    if (span !== undefined) {
+      if (error) {
+        span.setTag(Tags.ERROR, true)
+        span.log({
+          event: 'error',
+          'error.object': error,
+          message: error.message,
+          stack: error.stack,
+        })
+      }
+
+      span.finish()
+    }
+
+    if (raw !== undefined) {
+      this.emit(AMQPTransportEvents.After, raw)
+    }
+  }
+
+  /**
+   * Reply to sender queue based on headers
+   *
+   * @param   {Object} properties - incoming message headers
+   * @param   {mixed}  message - message to send
+   * @param   {Span}   [span] - opentracing span
+   * @param   {AMQPMessage} [raw] - raw message
+   */
+  reply(properties: PublishOptions, message: any, span?: opentracing.Span, raw?: RawMessage<any>) {
+    if (!properties.replyTo || !properties.correlationId) {
+      const error = new ValidationError('replyTo and correlationId not found in properties', '400')
+
+      if (span !== undefined) {
+        span.setTag(Tags.ERROR, true)
+        span.log({
+          event: 'error',
+          'error.object': error,
+          message: error.message,
+          stack: error.stack,
+        })
+        span.finish()
+      }
+
+      if (raw !== undefined) {
+        this.emit(AMQPTransportEvents.After, raw)
+      }
+
+      return Promise.reject(error)
+    }
+
+    const options = MessageOptions.getPublishOptions({
+      correlationId: properties.correlationId,
+    })
+
+    if (properties[kReplyHeaders]) {
+      options.headers = properties[kReplyHeaders]
+    }
+
+    let promise = this.send(properties.replyTo, message, options, span)
+
+    if (raw !== undefined) {
+      promise = promise
+        .finally(() => this.emit(AMQPTransportEvents.After, raw))
+    }
+
+    return span === undefined
+      ? promise
+      : wrapPromise(span, promise)
   }
 
   #createQueue = async <
@@ -562,7 +894,7 @@ export class AMQPTransport extends EventEmitter {
         context.queue,
         this.#replyTo,
         this.config.dlx.params,
-        'reply-to'
+        WellKnowHeaders.ReplyTo
       )
     }
 
@@ -573,7 +905,7 @@ export class AMQPTransport extends EventEmitter {
     return context
   }
 
-  #awaitPrivateQueue = () => {
+  #awaitPrivateQueue = (): Promise<void> => {
     return new Promise((resolve, reject) => {
       let done: AnyFunction | null
       let error: AnyFunction | null
@@ -592,7 +924,7 @@ export class AMQPTransport extends EventEmitter {
 
       this.once(AMQPTransportEvents.PrivateQueueReady, done)
       this.once(AMQPTransportEvents.Error, error)
-    });
+    })
   }
 
   // #onMessage: = <RequestBody extends any, ResponseBody extends any>()
@@ -701,6 +1033,10 @@ export class AMQPTransport extends EventEmitter {
     this.emit(AMQPTransportEvents.Close, err)
   }
 
+  #handleMessagePre = <RequestBody>(raw: RawMessage<RequestBody>)  => {
+    this.emit(AMQPTransportEvents.Pre, raw)
+  }
+
   #handlePrivateConsumerError = (_: Consumer, shouldRecreate: boolean, err: AMQP.ConsumerError): void => {
     if (shouldRecreate && !this.isConnecting) {
       this.createPrivateQueue()
@@ -723,21 +1059,24 @@ export class AMQPTransport extends EventEmitter {
    * @param  {Object} properties
    */
   #handlePrivateMessage = async <
-    RequestBody extends any,
-    ResponseBody extends any
+    Body extends any,
   >(
-    message: Message<RequestBody>,
-    properties: PublishingOpts,
-  ): Promise<ResponseBody | null> => {
+    message: Message<Body>,
+    properties: PublishOptions,
+  ): Promise<Body | null | void> => {
     const { correlationId, replyTo, headers } = properties
-    const { 'x-death': xDeath } = headers
+    const { [WellKnowHeaders.XDeath]: xDeath } = headers
 
     // retrieve promised message
     const future = this.#replyStorage.pop(correlationId)
 
     // case 1 - for some reason there is no saved reference, example - crashed process
     if (future === undefined) {
-      this.log.error('no recipient for the message %j and id %s', message.error || message.data || message, correlationId);
+      this.log.error(
+        'no recipient for the message %j and id %s',
+        message.error || message.data || message,
+        correlationId
+      )
 
       let error
       if (xDeath) {
@@ -773,18 +1112,19 @@ export class AMQPTransport extends EventEmitter {
       Object.defineProperty(error, kReplyHeaders, {
         value: headers,
         enumerable: false,
-      });
+      })
 
       return future.reject(error)
     }
 
     const response = buildResponse(message, properties)
+    const adaptedResponse = adaptResponse(response, future.replyOptions)
 
     if (future.cache) {
       this.#cache.set(future.cache, response)
     }
 
-    return future.resolve(adaptResponse(response, future.replyOptions))
+    return future.resolve(adaptedResponse)
   }
 
   #handleConsumerError = (

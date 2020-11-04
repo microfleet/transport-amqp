@@ -1,5 +1,14 @@
 import is from '@sindresorhus/is'
 import Errors from 'common-errors'
+import flatstr from 'flatstr'
+import stringify from 'safe-stable-stringify'
+import { promisify } from 'util'
+import { gzip } from 'zlib'
+
+import { PublishOptions } from '../message-options'
+import { ContentEncoding, ContentType } from '../types'
+
+const gzipAsync = promisify(gzip)
 
 export const enum SerializedContentType {
   MSError = 'ms-error',
@@ -111,3 +120,27 @@ export function jsonDeserializer(_: string, value: Serialized | any) {
       return value
   }
 }
+
+export const serialize = async (
+  message: any,
+  publishOptions: Pick<PublishOptions, 'contentType' | 'contentEncoding'>
+) => {
+  let serialized
+
+  switch (publishOptions.contentType) {
+    case ContentType.Json:
+    case ContentType.Utf8:
+      serialized = Buffer.from(flatstr(stringify(message, jsonSerializer)))
+      break
+
+    default:
+      throw new Error('invalid content-type')
+  }
+
+  if (publishOptions.contentEncoding === ContentEncoding.Gzip) {
+    return gzipAsync(serialized)
+  }
+
+  return serialized
+}
+

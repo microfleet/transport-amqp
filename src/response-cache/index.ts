@@ -1,17 +1,21 @@
-import is from '@sindresorhus/is'
 import hashlru from 'hashlru'
 import hash from 'object-hash'
 import assert from 'assert'
 
 import { Schema } from '../schema'
 import { LoggerLike } from '../schema/logger-like'
-const latency = require('./latency')
+import { latency, HRTime } from '../utils/latency'
 
 type HashLRU = ReturnType<typeof hashlru>
 
 export interface CacheOpts {
   size: Schema['cache']
   log: LoggerLike
+}
+
+export interface CachedResponse<Response> {
+  maxAge: HRTime
+  value: Response
 }
 
 export class Cache {
@@ -30,10 +34,10 @@ export class Cache {
   }
 
   // TODO Message interface
-  public get(message: any, maxAge: number) {
+  public get<Body>(message: any, maxAge: number = 0) {
     try {
       assert(this.enabled, 'tried to use disabled cache')
-      return this.#get(message, maxAge)
+      return this.#get<Body>(message, maxAge)
     } catch (e) {
       this.log.debug(e.message)
       return null
@@ -50,8 +54,8 @@ export class Cache {
     }
   }
 
-  #get = (message: any, maxAge: number) => {
-    if (is.number(maxAge) === false) {
+  #get = <Body>(message: any, maxAge: number): CachedResponse<Body> | string | null => {
+    if (maxAge === 0) {
       return null
     }
 
@@ -60,7 +64,7 @@ export class Cache {
 
     if (response !== undefined) {
       if (latency(response.maxAge) < maxAge) {
-        return response;
+        return response
       }
 
       this.cache.remove(hashKey)

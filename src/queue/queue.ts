@@ -1,6 +1,7 @@
-import hyperid from 'hyperid'
 import uniq from 'lodash/uniq'
 import { getInstance as getLoggerInstance } from '../loggers'
+import { SequenceProvider } from '../sequence-provider'
+import { WellKnowHeaders } from '../types'
 import { on406 } from '../utils/error'
 import { AMQP } from '../utils/transport'
 
@@ -37,9 +38,9 @@ export class Queue {
     })
   }
 
-  static nameSequence = hyperid({ urlSafe: true })
+  static sequence = new SequenceProvider({ urlSafe: true })
   static getName(replyTo?: string) {
-    return replyTo ?? `microfleet.${Queue.nameSequence()}`
+    return replyTo ?? `microfleet.${Queue.sequence.next()}`
   }
 
   constructor(token: symbol, queue: AMQP.Queue, props: CreateQueueProps) {
@@ -87,8 +88,8 @@ export class Queue {
       routingKey = route
     } else {
       options.arguments = {
-        'x-match': 'any',
-        [headerName === true ? 'routing-key' : headerName]: route,
+        [WellKnowHeaders.XMatch]: 'any',
+        [headerName === true ? WellKnowHeaders.RoutingKey : headerName]: route,
       }
     }
 
@@ -108,6 +109,5 @@ export class Queue {
     this.log.debug({ queueName, exchange, routingKey }, 'bound queue to exchange')
     return response
   }
-
 }
 

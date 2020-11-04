@@ -1,18 +1,27 @@
-import { setTimeout } from 'timers'
 import { TimeoutError } from 'common-errors'
-import { generateErrorMessage } from './error'
+import { setTimeout } from 'timers'
+import { ReplyOptions } from '../message-options'
+import { generateErrorMessage } from '../utils/error'
 
-export interface PendingReplyConf extends Pick<PromiseConstructor, 'resolve' | 'reject'> {
+export interface PendingReplyConf {
+  // promise resolve fn
+  resolve(value: any): void
+
+  // promise reject fn
+  reject(reason: any): void
+
   // expected response time
   timeout: number
   // routing key for error message.
   routing: string
-  // whether return body-only response or include headers
-  simple: boolean
   // process.hrtime() results
   time: ReturnType<typeof process['hrtime']>
   // cache key
   cache: string | null
+  // reply options:
+  replyOptions: ReplyOptions
+  // whether return body-only response or include headers
+  simple?: boolean
 }
 
 export interface PendingReply extends PendingReplyConf {
@@ -69,7 +78,7 @@ export class ReplyStorage {
     (opts as PendingReply).timer = setTimeout(
       this.onTimeout,
       opts.timeout,
-      correlationId
+      correlationId,
     )
 
     this.storage.set(correlationId, opts as PendingReply)
@@ -104,7 +113,7 @@ export class ReplyStorage {
   }
 
   pop(correlationId: string) {
-    const future = this.storage.get(correlationId);
+    const future = this.storage.get(correlationId)
 
     // if undefined - early return
     if (future === undefined) {

@@ -1,30 +1,30 @@
+import opentracing from 'opentracing'
 import { Consumer } from './consumer'
+import { MessageHeaders, PublishOptions } from './message-options'
+
 import { Queue } from './queue'
-import { PublishingConfOpts } from './schema/publishing'
 import { AMQP } from './utils/transport'
 
 export type AnyFunction = (...args: any[]) => any
 
-export interface PublishingOpts extends PublishingConfOpts {
-  appId: string
-  replyTo: string
-  correlationId: string
-  timeout?: number
-  exchange?: string
-  arguments?: Record<string, any>
+export const enum WellKnowHeaders {
+  ReplyTo = 'reply-to',
+  Timeout = 'timeout',
+  XDeath  = 'x-death',
+  XMatch  = 'x-match',
+  RoutingKey = 'routing-key',
+  ContentType = 'contentType',
+  ContentEncoding = 'contentEncoding',
 }
 
 export interface ExtendedMessage {
+  replyTo?: string
+  correlationId?: string
   weight: number
   exchange: string
   routingKey: string
   deliveryTag: string
   redelivered: boolean
-}
-
-export interface MessageHeaders extends Record<string | number, string | number> {
-  contentType: ContentType
-  contentEncoding: ContentEncoding
 }
 
 export interface RawMessage<
@@ -40,17 +40,32 @@ export interface RawMessage<
   [x: string]: any
 }
 
-export type MessageProps = MessageHeaders & ExtendedMessage
-
 export interface MessageHandler<
   RequestBody extends any = any,
   ResponseBody extends any = any
 > {
-  (payload: RequestBody, properties: PublishingOpts, raw: RawMessage<RequestBody>): PromiseLike<ResponseBody>
+  (
+    payload: RequestBody,
+    properties: PublishOptions,
+    raw: RawMessage<RequestBody>,
+    responseHandler: (error?: Error, data?: ResponseBody) => void
+  ): PromiseLike<ResponseBody>
 }
 
 export interface MessagePreHandler<RequestBody extends any = any> {
   (raw: RawMessage<RequestBody>): void
+}
+
+export interface PublishMessageHandle<
+  RequestBody extends any = any,
+  ResponseBody extends any = any
+> {
+  (
+    route: string,
+    message: RequestBody,
+    options: Partial<PublishOptions>,
+    parentSpan?: opentracing.Span | opentracing.SpanContext
+  ): Promise<ResponseBody>
 }
 
 export interface ConsumedQueue {
@@ -70,11 +85,12 @@ export const enum ContentEncoding {
 }
 
 export const enum AMQPTransportEvents {
-  // pre-processing hook
   Pre               = 'pre',
+  After             = 'after',
   Ready             = 'ready',
   Close             = 'close',
   Error             = 'error',
+  Publish           = 'publish',
   ConsumerClose     = 'consumer-close',
   PrivateQueueReady = 'private-queue-ready',
   ConsumedQueueReconnected = 'consumed-queue-reconnected',

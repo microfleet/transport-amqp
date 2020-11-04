@@ -74,7 +74,7 @@ const copyErrorData = [
   'field', 'reason', 'stack',
 ]
 
-type ErrorLike = Record<string, any> & {
+export type ErrorLike = Record<string, any> & {
   message?: string
 }
 
