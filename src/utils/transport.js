@@ -25,5 +25,4 @@ amqp.prototype.consumeAsync = async function consumeAsync(...args) {
   return consumer;
 };
 
-
 module.exports = amqp;
