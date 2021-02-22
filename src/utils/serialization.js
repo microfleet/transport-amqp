@@ -66,6 +66,14 @@ function jsonSerializer(key, value) {
     value.error = serializeError(value.error);
   }
 
+  if (value instanceof Map) {
+    return { type: 'map', data: Object.fromEntries(value) };
+  }
+
+  if (value instanceof Set) {
+    return { type: 'set', data: Array.from(value) };
+  }
+
   return value;
 }
 
@@ -87,6 +95,12 @@ function jsonDeserializer(key, value) {
     case 'Buffer':
     case 'buffer':
       return Buffer.from(data);
+
+    case 'ms-set':
+      return new Set(data);
+
+    case 'ms-map':
+      return new Map(Object.entries(data));
 
     default:
       return value;
