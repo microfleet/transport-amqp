@@ -900,11 +900,12 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Send message to specified route
-   *
-   * @param   {String} route   - destination route
-   * @param   {mixed}  message - message to send - will be coerced to string via stringify
-   * @param   {Object} options - additional options
-   * @param   {Span}   parentSpan
+   * @param {String} route - Destination route
+   * @param {mixed} message - Message to send - will be coerced to string via stringify
+   * @param {Object} [options={}] - Additional options
+   * @param {opentracing.Span} [parentSpan] - Existing span
+   * @template T
+   * @returns {PromiseLike<T>}
    */
   publish(route, message, options = {}, parentSpan) {
     const span = this.tracer.startSpan(`publish:${route}`, {
@@ -931,11 +932,12 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Send message to specified queue directly
-   *
-   * @param {String} queue     - destination queue
-   * @param {mixed}  message   - message to send
-   * @param {Object} [options] - additional options
-   * @param {opentracing.Span} [parentSpan] - Existing span.
+   * @param {String} queue - Destination queue
+   * @param {mixed} message - Message to send
+   * @param {Object} [options={}] - Additional options
+   * @param {opentracing.Span} [parentSpan] - Existing span
+   * @template T
+   * @returns {PromiseLike<T>}
    */
   send(queue, message, options = {}, parentSpan) {
     const span = this.tracer.startSpan(`send:${queue}`, {
@@ -962,11 +964,12 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Sends a message and then awaits for response
-   * @param  {String} route
-   * @param  {mixed}  message
-   * @param  {Object} options
-   * @param  {Span}   parentSpan
-   * @return {Promise}
+   * @param {String} route - Destination route
+   * @param {mixed} message - Message to send - will be coerced to string via stringify
+   * @param {Object} [options={}] - Additional options
+   * @param {opentracing.Span} [parentSpan] - Existing span
+   * @template T
+   * @returns {PromiseLike<T>}
    */
   publishAndWait(route, message, options = {}, parentSpan) {
     // opentracing instrumentation
@@ -990,11 +993,12 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Send message to specified queue directly and wait for answer
-   *
-   * @param {string} queue        destination queue
-   * @param {any}    message      message to send
-   * @param {object} options      additional options
-   * @param {Span}   parentSpan
+   * @param {string} queue - Destination queue
+   * @param {any} message - Message to send
+   * @param {Object} [options={}] - Additional options
+   * @param {opentracing.Span} [parentSpan] - Existing span
+   * @template T
+   * @returns {PromiseLike<T>}
    */
   sendAndWait(queue, message, options = {}, parentSpan) {
     // opentracing instrumentation
