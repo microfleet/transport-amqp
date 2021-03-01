@@ -905,7 +905,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
    * @template T
-   * @returns {PromiseLike<T>}
+   * @returns {Promise<T>}
    */
   publish(route, message, options = {}, parentSpan) {
     const span = this.tracer.startSpan(`publish:${route}`, {
@@ -937,7 +937,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
    * @template T
-   * @returns {PromiseLike<T>}
+   * @returns {Promise<T>}
    */
   send(queue, message, options = {}, parentSpan) {
     const span = this.tracer.startSpan(`send:${queue}`, {
@@ -969,7 +969,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
    * @template T
-   * @returns {PromiseLike<T>}
+   * @returns {Promise<T>}
    */
   publishAndWait(route, message, options = {}, parentSpan) {
     // opentracing instrumentation
@@ -998,7 +998,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
    * @template T
-   * @returns {PromiseLike<T>}
+   * @returns {Promise<T>}
    */
   sendAndWait(queue, message, options = {}, parentSpan) {
     // opentracing instrumentation
