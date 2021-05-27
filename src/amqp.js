@@ -1,11 +1,17 @@
+/**
+ * @typedef { import("opentracing").Span } Span
+ * @typedef { import("opentracing").Tracer } Tracer
+ */
+
 // deps
-const Promise = require('bluebird');
-const gunzip = Promise.promisify(require('zlib').gunzip);
-const gzip = Promise.promisify(require('zlib').gzip);
+const Bluebird = require('bluebird');
+const gunzip = Bluebird.promisify(require('zlib').gunzip);
+const gzip = Bluebird.promisify(require('zlib').gzip);
 const uuid = require('uuid');
 const flatstr = require('flatstr');
 const stringify = require('json-stringify-safe');
 const EventEmitter = require('eventemitter3');
+const { once } = require('events');
 const os = require('os');
 const is = require('is');
 const assert = require('assert');
@@ -49,12 +55,12 @@ const PARSE_ERR = new ValidationError('couldn\'t deserialize input', 500, 'messa
 
 /**
  * Wraps regular in a bluebird promise
+ * @template T
  * @param  {Span} span opentracing span
- * @param  {Promise} promise pending promise
- *
- * @return {BluebirdPromise}
+ * @param  {PromiseLike<T>} promise pending promise
+ * @return {Bluebird<T>}
  */
-const wrapPromise = (span, promise) => Promise.resolve((async () => {
+const wrapPromise = (span, promise) => Bluebird.resolve((async () => {
   try {
     return await promise;
   } catch (error) {
@@ -116,7 +122,7 @@ const initRoutingFn = (messageHandler, transport) => {
    * @param  {AMQPMessage} raw - Raw AMQP Message Structure
    * @param  {Error} error - Error if it happened.
    * @param  {mixed} data - Response data.
-   * @returns {Promise<*>}
+   * @returns {Bluebird<any>}
    */
   function responseHandler(raw, error, data) {
     const { properties, span } = raw;
@@ -223,28 +229,66 @@ class AMQPTransport extends EventEmitter {
     // init cache or pass-through operations
     this.cache = new Cache(config.cache);
 
-    // reply storage, where we'd save correlation ids
-    // and callbacks to be called once we are done
+    /**
+     * @readonly
+     * reply storage, where we'd save correlation ids
+     * and callbacks to be called once we are done
+     */
     this.replyStorage = new ReplyStorage();
 
-    // delay settings for reconnect
+    /**
+     * delay settings for reconnect
+     * @readonly
+     */
     this.recovery = new Backoff(config.recovery);
 
-    // init open tracer - default one is noop
+    /**
+     * @readonly
+     * @type Tracer
+     */
     this.tracer = config.tracer || new opentracing.Tracer();
 
-    // setup instance
+    /**
+     * @private
+     */
     this._replyTo = null;
+    /**
+     * @private
+     */
     this._consumers = new Map();
+    /**
+     * @private
+     */
     this._queues = new WeakMap();
+    /**
+     * @private
+     */
     this._reconnectionHandlers = new WeakMap();
+    /**
+     * @private
+     */
     this._boundEmit = this.emit.bind(this);
+    /**
+     * @private
+     */
     this._onConsume = this._onConsume.bind(this);
+    /**
+     * @private
+     */
     this._on406 = this._on406.bind(this);
+    /**
+     * @private
+     */
     this._onClose = this._onClose.bind(this);
+    /**
+     * @private
+     */
     this._onConnect = this._onConnect.bind(this);
 
     // Form app id string for debugging
+    /**
+     * @private
+     */
     this._appID = {
       name: this.config.name,
       host: os.hostname(),
@@ -254,9 +298,18 @@ class AMQPTransport extends EventEmitter {
     };
 
     // Cached serialized value
+    /**
+     * @private
+     */
     this._appIDString = stringify(this._appID);
+    /**
+     * @private
+     */
     this._defaultOpts = { ...config.defaultOpts };
     this._defaultOpts.appId = this._appIDString;
+    /**
+     * @private
+     */
     this._extraQueueOptions = {};
 
     // DLX config
@@ -270,7 +323,7 @@ class AMQPTransport extends EventEmitter {
   /**
    * Connects to AMQP, if config.router is specified earlier,
    * automatically invokes .consume function
-   * @return {Promise}
+   * @return {Bluebird<AMQPTransport>}
    */
   connect() {
     const { _amqp: amqp, config } = this;
@@ -282,7 +335,7 @@ class AMQPTransport extends EventEmitter {
         case 'reconnecting': {
           const msg = 'connection was already initialized, close it first';
           const err = new InvalidOperationError(msg);
-          return Promise.reject(err);
+          return Bluebird.reject(err);
         }
 
         default:
@@ -292,7 +345,7 @@ class AMQPTransport extends EventEmitter {
       }
     }
 
-    return Promise
+    return Bluebird
       .fromNode((next) => {
         this._amqp = new AMQP(config.connection, next);
         this._amqp.on('ready', this._onConnect);
@@ -337,7 +390,7 @@ class AMQPTransport extends EventEmitter {
     await this.closeAllConsumers();
 
     try {
-      await new Promise((resolve, reject) => {
+      await new Bluebird((resolve, reject) => {
         amqp.once('close', resolve);
         amqp.once('error', reject);
         amqp.close();
@@ -359,12 +412,12 @@ class AMQPTransport extends EventEmitter {
           return this._close();
         default:
           this._amqp = null;
-          return Promise.resolve();
+          return Bluebird.resolve();
       }
     }
 
     const err = new InvalidOperationError('connection was not initialized in the first place');
-    return Promise.reject(err);
+    return Bluebird.reject(err);
   }
 
   /**
@@ -386,7 +439,7 @@ class AMQPTransport extends EventEmitter {
 
     const queue = ctx.queue = await amqp.queueAsync(params);
 
-    await Promise
+    await Bluebird
       .resolve(queue.declareAsync())
       .catch(error406, this._on406.bind(this, params))
       .tapCatch((err) => {
@@ -485,7 +538,7 @@ class AMQPTransport extends EventEmitter {
 
     try {
       await this.closeConsumer(consumer);
-      await Promise.delay(this.recovery.get('consumed', 1));
+      await Bluebird.delay(this.recovery.get('consumed', 1));
     } catch (e) {
       this.log.error({ err: e }, 'failed to close consumer');
     } finally {
@@ -543,7 +596,7 @@ class AMQPTransport extends EventEmitter {
       }
     } catch (e) {
       this.log.error('private queue creation failed - restarting', e);
-      await Promise.delay(this.recovery.get('private', attempt));
+      await Bluebird.delay(this.recovery.get('private', attempt));
       return this.createPrivateQueue(attempt + 1);
     }
 
@@ -576,7 +629,7 @@ class AMQPTransport extends EventEmitter {
       work.push(this.bindHeadersExchange(queue, rebindRoutes, this.config.headersExchange));
     }
 
-    await Promise.all(work);
+    await Bluebird.all(work);
   }
 
   /**
@@ -633,7 +686,7 @@ class AMQPTransport extends EventEmitter {
       } catch (e) {
         const err = new ConnectionError('failed to init queue or exchange', e);
         log.warn({ err }, '[consumed-queue-down]');
-        await Promise.delay(recovery.get('consumed', attempt + 1));
+        await Bluebird.delay(recovery.get('consumed', attempt + 1));
         return establishConsumer(attempt + 1);
       }
 
@@ -678,7 +731,7 @@ class AMQPTransport extends EventEmitter {
     for (const consumer of this._consumers.values()) {
       work.push(this.stopConsumedQueue(consumer));
     }
-    await Promise.all(work);
+    await Bluebird.all(work);
   }
 
   /**
@@ -697,12 +750,12 @@ class AMQPTransport extends EventEmitter {
     this._boundEmit('consumer-close', consumer);
 
     // close channel
-    await Promise
+    await Bluebird
       .fromCallback((done) => {
         consumer.cancel(done);
       })
       .timeout(5000)
-      .catch(Promise.TimeoutError, noop);
+      .catch(Bluebird.TimeoutError, noop);
 
     this.log.info({ consumerTag: consumer.consumerTag }, 'closed consumer');
   }
@@ -729,7 +782,7 @@ class AMQPTransport extends EventEmitter {
   /**
    * Declares exchange and reports 406 error.
    * @param  {Object} params - Exchange params.
-   * @returns {Promise<*>}
+   * @returns {Bluebird<any>}
    */
   declareExchange(params) {
     return this._amqp
@@ -745,7 +798,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {Queue} queue - Declared queue object.
    * @param  {string} route - Routing key.
    * @param  {boolean} [headerName=false] - if exchange has `headers` type.
-   * @returns {Promise<*>}
+   * @returns {Promise<any>}
    */
   async bindRoute(exchange, queue, route, headerName = false) {
     const queueName = queue.queueOptions.queue;
@@ -816,7 +869,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {mixed} _routes
    * @param  {Object} opts
    * @param  {boolean} [headerName=false] - if exchange has `headers` type
-   * @returns {Promise<*>}
+   * @returns {Bluebird<*>}
    */
   bindHeadersExchange(queue, _routes, opts, headerName = true) {
     // make sure we have an expanded array of routes
@@ -845,12 +898,13 @@ class AMQPTransport extends EventEmitter {
    *
    * @param {object} queue   - queue instance created by .createQueue
    * @param {string} _routes - messages sent to this route will be delivered to queue
+   * @returns {Bluebird<any>}
    */
   unbindExchange(queue, _routes) {
     const { exchange } = this.config;
     const routes = toUniqueStringArray(_routes);
 
-    return Promise.map(routes, (route) => (
+    return Bluebird.map(routes, (route) => (
       queue.unbindAsync(exchange, route).tap(() => {
         const queueName = queue.queueOptions.queue;
         if (queue._routes) {
@@ -905,7 +959,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
    * @template T
-   * @returns {Promise<T>}
+   * @returns {Bluebird<T>}
    */
   publish(route, message, options = {}, parentSpan) {
     const span = this.tracer.startSpan(`publish:${route}`, {
@@ -937,7 +991,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
    * @template T
-   * @returns {Promise<T>}
+   * @returns {Bluebird<T>}
    */
   send(queue, message, options = {}, parentSpan) {
     const span = this.tracer.startSpan(`send:${queue}`, {
@@ -998,7 +1052,7 @@ class AMQPTransport extends EventEmitter {
    * @param {Object} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
    * @template T
-   * @returns {Promise<T>}
+   * @returns {Bluebird<T>}
    */
   sendAndWait(queue, message, options = {}, parentSpan) {
     // opentracing instrumentation
@@ -1062,6 +1116,7 @@ class AMQPTransport extends EventEmitter {
    * @param   {mixed}  message - message to send
    * @param   {Span}   [span] - opentracing span
    * @param   {AMQPMessage} [raw] - raw message
+   * @returns {Bluebird<any>}
    */
   reply(properties, message, span, raw) {
     if (!properties.replyTo || !properties.correlationId) {
@@ -1079,7 +1134,7 @@ class AMQPTransport extends EventEmitter {
         this.emit('after', raw);
       }
 
-      return Promise.reject(error);
+      return Bluebird.reject(error);
     }
 
     const options = {
@@ -1104,30 +1159,10 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Creates local listener for when a private queue is up
-   * @returns {Promise<Void|Error>}
+   * @returns {Promise<void>}
    */
-  awaitPrivateQueue() {
-    /* eslint-disable prefer-const */
-    return new Promise((resolve, reject) => {
-      let done;
-      let error;
-
-      done = function onReady() {
-        this.removeAllListeners('error', error);
-        error = null;
-        resolve();
-      };
-
-      error = function onError(err) {
-        this.removeListener('private-queue-ready', done);
-        done = null;
-        reject(err);
-      };
-
-      this.once('private-queue-ready', done);
-      this.once('error', error);
-    });
-    /* eslint-enable prefer-const */
+  async awaitPrivateQueue() {
+    await once(this, 'private-queue-ready');
   }
 
   /**
@@ -1396,8 +1431,85 @@ class AMQPTransport extends EventEmitter {
   }
 }
 
-// expose static connectors
-helpers(AMQPTransport);
+/**
+ * Creates AMQPTransport instance
+ * @template {Function} T
+ * @param  {Object} [_config]
+ * @param  {T} [_messageHandler]
+ * @returns {Bluebird<[AMQPTransport, T]>}
+ */
+AMQPTransport.create = function create(_config, _messageHandler) {
+  let config;
+  let messageHandler;
+
+  if (is.fn(_config) && is.undefined(_messageHandler)) {
+    messageHandler = _config;
+    config = {};
+  } else {
+    messageHandler = _messageHandler;
+    config = _config;
+  }
+
+  // init AMQP connection
+  const amqp = new AMQPTransport(config);
+
+  // connect & resolve AMQP connector & message handler if it exists
+  return amqp.connect().return([amqp, messageHandler]);
+};
+
+/**
+ * Allows one to consume messages with a given router and predefined callback handler
+ * @param  {Object} _config
+ * @param  {Function} [_messageHandler]
+ * @param  {Object} [_opts={}]
+ * @returns {Bluebird<AMQPTransport>}
+ */
+AMQPTransport.connect = function connect(config, _messageHandler, _opts = {}) {
+  return AMQPTransport
+    .create(config, _messageHandler)
+    .spread(async (amqp, messageHandler) => {
+      // do not init queues
+      if (is.fn(messageHandler) !== false || amqp.config.listen) {
+        await amqp.createConsumedQueue(messageHandler, amqp.config.listen, _opts);
+      }
+
+      return amqp;
+    });
+};
+
+/**
+ * Same as AMQPTransport.connect, except that it creates a queue
+ * per each of the routes we want to listen to
+ * @param  {Object} config
+ * @param  {Function} [_messageHandler]
+ * @param  {Object} [_opts={}]
+ * @returns {Bluebird<AMQPTransport>}
+ */
+AMQPTransport.multiConnect = function multiConnect(config, _messageHandler, opts = []) {
+  return AMQPTransport
+    .create(config, _messageHandler)
+    .spread(async (amqp, messageHandler) => {
+      // do not init queues
+      if (is.fn(messageHandler) === false && !amqp.config.listen) {
+        return amqp;
+      }
+
+      await Bluebird.map(amqp.config.listen, (route, idx) => {
+        const queueOpts = opts[idx] || Object.create(null);
+        const queueName = config.queue
+          ? `${config.queue}-${route.replace(/[#*]/g, '.')}`
+          : config.queue;
+
+        const consumedQueueOpts = defaults(queueOpts, {
+          queue: queueName,
+        });
+
+        return amqp.createConsumedQueue(messageHandler, [route], consumedQueueOpts);
+      });
+
+      return amqp;
+    });
+};
 
 // assign statics
 module.exports = AMQPTransport;
