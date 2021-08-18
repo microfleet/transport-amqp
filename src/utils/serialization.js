@@ -41,6 +41,7 @@ function serializeError(error) {
 
   serialized.data = Object
     .getOwnPropertyNames(error)
+    .filter((prop) => typeof error[prop] !== 'function')
     .map(serializeOwnProperties, error);
 
   return serialized;
