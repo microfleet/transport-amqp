@@ -1,5 +1,6 @@
+// eslint-disable-next-line max-classes-per-file
 const Promise = require('bluebird');
-const { HttpStatusError } = require('common-errors');
+const { HttpStatusError, Error: CommonError } = require('common-errors');
 const Proxy = require('@microfleet/amqp-coffee/test/proxy').route;
 const ld = require('lodash');
 const stringify = require('json-stringify-safe');
@@ -109,6 +110,31 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     assert.equal(err.name, 'MSError');
     assert.equal(!!err.stack, true);
     assert.equal(err.message, 'ok');
+    assert.ok(err.constructor);
+  });
+
+  // See usage at:
+  // https://github.com/microfleet/core/blob/f252a71e2947696f21d82830e2714b51aa4d8703/packages/plugin-router/src/lifecycle/handlers/response.ts#L58
+  it('serializes & deserializes error wrapped with `common-errors` error', () => {
+    class MyError extends Error {
+      // eslint-disable-next-line no-useless-constructor
+      constructor(message) {
+        super(message);
+        this.data = { some: 'data' };
+      }
+    }
+
+    class MyBadError extends MyError {}
+
+    const serialized = stringify(new CommonError('Wrapper', new MyBadError('ok')), jsonSerializer);
+    const err = JSON.parse(serialized, jsonDeserializer);
+
+    assert.equal(err.name, 'Error');
+    assert.equal(!!err.stack, true);
+    assert.equal(err.message, 'Wrapper');
+    assert.deepStrictEqual(err.inner_error.data, { some: 'data' });
+    assert.ok(err.constructor);
+    assert.ok(err.inner_error.constructor);
   });
 
   it('serializes & deserializes http status error', () => {
