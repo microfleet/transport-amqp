@@ -1,3 +1,6 @@
 {
-  "extends": "makeomatic"
+  "extends": "makeomatic",
+  "rules": {
+    "default-param-last": 0
+  }
 }

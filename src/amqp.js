@@ -101,7 +101,7 @@ function safeJSONParse(data, log) {
   try {
     return JSON.parse(data, jsonDeserializer);
   } catch (err) {
-    log.warn('Error parsing buffer', err, String(data));
+    log.warn({ err, data: String(data) }, 'Error parsing buffer');
     return { err: PARSE_ERR };
   }
 }
@@ -470,7 +470,7 @@ class AMQPTransport extends EventEmitter {
       // https://github.com/dropbox/amqp-coffee#consumer-event-error
       // handle consumer error on reconnect and close consumer
       // warning: other queues (not private one) should be handled manually
-      this.log.error('consumer returned 404 error', error);
+      this.log.error({ err: error }, 'consumer returned 404 error');
 
       // reset replyTo queue and ignore all future errors
       consumer.removeAllListeners('error');
@@ -484,7 +484,7 @@ class AMQPTransport extends EventEmitter {
       return;
     }
 
-    this.log.error('private consumer returned err', err);
+    this.log.error({ err }, 'private consumer returned err');
     this.emit('error', err);
   }
 
@@ -507,7 +507,7 @@ class AMQPTransport extends EventEmitter {
       // ignore errors
       case 311:
       case 313:
-        this.log.error({ err, res }, 'error working with a channel:');
+        this.log.error({ err, res }, 'error working with a channel');
         return null;
 
       case 404:
@@ -595,7 +595,7 @@ class AMQPTransport extends EventEmitter {
         await this.bindHeadersExchange(queue, this._replyTo, dlxConfig.params, 'reply-to');
       }
     } catch (e) {
-      this.log.error('private queue creation failed - restarting', e);
+      this.log.error({ err: e }, 'private queue creation failed - restarting');
       await Bluebird.delay(this.recovery.get('private', attempt));
       return this.createPrivateQueue(attempt + 1);
     }
@@ -654,7 +654,8 @@ class AMQPTransport extends EventEmitter {
     if (config.bindPersistantQueueToHeadersExchange === true) {
       for (const route of listen.values()) {
         assert.ok(
-          /^[^*#]+$/, route,
+          /^[^*#]+$/,
+          route,
           'with bindPersistantQueueToHeadersExchange: true routes must not have patterns'
         );
       }
@@ -1314,7 +1315,7 @@ class AMQPTransport extends EventEmitter {
       let error;
       if (xDeath) {
         error = new AmqpDLXError(xDeath, message);
-        this.log.warn('message was not processed', error);
+        this.log.warn({ err: error }, 'message was not processed');
       }
 
       // otherwise we just run messages in circles
@@ -1397,7 +1398,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {Error}  err    - 406 Conflict Error.
    */
   _on406(params, err) {
-    this.log.warn({ params }, '[406] error declaring exchange/queue:', err.replyText);
+    this.log.warn({ params }, '[406] error declaring exchange/queue: %s', err.replyText);
   }
 
   /**
