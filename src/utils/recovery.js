@@ -20,8 +20,7 @@ class Backoff {
     if (attempt === 0) return 0;
     if (attempt === 1) return min;
 
-    // eslint-disable-next-line no-restricted-properties
-    return Math.min(Math.round((Math.random() + 1) * min * Math.pow(factor, attempt - 1)), max);
+    return Math.min(Math.round((Math.random() + 1) * min * (factor ** (attempt - 1)), max));
   }
 }
 
