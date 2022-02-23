@@ -5,7 +5,7 @@
   "main": "./src/amqp.js",
   "types": "./types/index.d.ts",
   "scripts": {
-    "compile": "pnpm run types",
+    "compile": "rimraf ./lib; cp -r ./src ./lib && pnpm run types",
     "types": "tsc src/**.js --declaration --allowJs --emitDeclarationOnly --outDir types",
     "lint": "eslint ./src",
     "test": "pnpm run lint && pnpm run test:e2e",

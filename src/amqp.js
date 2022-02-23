@@ -1512,5 +1512,12 @@ AMQPTransport.multiConnect = function multiConnect(config, _messageHandler, opts
     });
 };
 
+// expose internal libraries
+AMQPTransport.ReplyStorage = ReplyStorage;
+AMQPTransport.Backoff = Backoff;
+AMQPTransport.Cache = Cache;
+AMQPTransport.jsonSerializer = jsonSerializer;
+AMQPTransport.jsonDeserializer = jsonDeserializer;
+
 // assign statics
 module.exports = AMQPTransport;
