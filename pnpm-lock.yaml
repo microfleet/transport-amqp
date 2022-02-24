@@ -36,6 +36,7 @@ specifiers:
   pino: ^7.8.0
   read-pkg: '5'
   rimraf: ^3.0.2
+  semantic-release: ^19.0.2
   sinon: ^13.0.1
   sonic-boom: ^2.6.0
   typescript: ^4.5.5
@@ -81,6 +82,7 @@ devDependencies:
   microtime: 3.0.0
   mocha: 9.2.1
   rimraf: 3.0.2
+  semantic-release: 19.0.2
   sinon: 13.0.1
   typescript: 4.5.5
 
@@ -5082,7 +5084,7 @@ packages:
       require-directory: 2.1.1
       string-width: 4.2.3
       y18n: 5.0.8
-      yargs-parser: 20.2.4
+      yargs-parser: 20.2.9
     dev: true
 
   /yargs/17.3.1:
