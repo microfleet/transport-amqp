@@ -4,10 +4,9 @@ const Joi = require('joi');
  * Settings confirm to [policy: string] : settings schema
  * @constructor
  * @param  {Object} settings - Container for policies.
- * @param  {Object} settings.* - Container for policy settings.
- * @param  {number} settings.*.min - Min delay for attempt.
- * @param  {number} settings.*.max - Max delay for attempt.
- * @param  {number} settings.*.factor - Exponential factor.
+ * @param  {number} settings.min - Min delay for attempt.
+ * @param  {number} settings.max - Max delay for attempt.
+ * @param  {number} settings.factor - Exponential factor.
  */
 class Backoff {
   constructor(settings) {
@@ -20,7 +19,7 @@ class Backoff {
     if (attempt === 0) return 0;
     if (attempt === 1) return min;
 
-    return Math.min(Math.round((Math.random() + 1) * min * (factor ** (attempt - 1)), max));
+    return Math.min(Math.round((Math.random() + 1) * min * (factor ** (attempt - 1))), max);
   }
 }
 

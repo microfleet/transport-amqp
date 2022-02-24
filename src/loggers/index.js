@@ -1,14 +1,27 @@
-const every = require('lodash/every');
-const is = require('is');
+/**
+ * @typedef { import('pino').BaseLogger } Logger
+ */
 
+/**
+ * @type {string[]}
+ */
 exports.levels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
 
+/**
+ *
+ * @param {unknown} obj
+ * @returns {obj is Logger}
+ */
 exports.isCompatible = (obj) => {
   return obj !== null
     && typeof obj === 'object'
-    && every(exports.levels, (level) => is.fn(obj[level]));
+    && exports.levels.every((level) => typeof obj[level] === 'function');
 };
 
+/**
+ * @param {*} config
+ * @returns {Logger}
+ */
 exports.prepareLogger = (config) => {
   // bunyan logger
   if (config.debug && !config.log) {

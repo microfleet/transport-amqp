@@ -10,7 +10,7 @@ const copyErrorData = [
 
 /**
  * Wraps response error
- * @param {Error} originalError
+ * @param {Error | Record<string, any>} originalError
  * @returns {Error}
  */
 exports.wrapError = function wrapError(originalError) {

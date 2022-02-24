@@ -1,6 +1,52 @@
 /**
  * @typedef { import("opentracing").Span } Span
  * @typedef { import("opentracing").Tracer } Tracer
+ *
+ * @typedef AMQPMessage
+ * @property {Object} properties - amqp properties
+ * @property {Record<string, any>} properties.headers - amqp headers
+ * @property {string} [properties.appId] sender diagnostics data
+ * @property {string} [properties.routingKey] amqp routing-key
+ * @property {string} [properties.replyTo] amqp reply-to field
+ * @property {string} [properties.correlationId] amqp correlation-id
+ * @property {string} [properties.contentType] amqp message content-type
+ * @property {string} [properties.contentEncoding] amqp message content-encoding
+ * @property {() => void} [ack] - Acknowledge if nack is `true`.
+ * @property {() => void} [reject] - Reject if nack is `true`.
+ * @property {() => void} [retry] - Retry msg if nack is `true`.
+ * @property {opentracing.Span} [span] - optional span
+ *
+ * @typedef ConsumerBase
+ * @property {(err: any, result?: any) => void} cancel
+ * @property {string} consumerTag
+ *
+ * @typedef {EventEmitter & ConsumerBase} Consumer
+ *
+ * @typedef PublishOptions
+ * @property {string} [contentType] - message content-type
+ * @property {string} [contentEncoding] - message encoding, defaults to `plain`
+ * @property {string} [exchange] - exchange to publish to
+ * @property {string} [correlationId] - used to match messages when getting a reply
+ * @property {string} [exchange] - will be overwritten by exchange thats passed
+ * @property {boolean} [gzip] - whether to encode using gzip
+ * @property {boolean} [skipSerialize] - whether it was already serialized earlier
+ * @property {number}  [timeout] - optional ttl value for message in the publish/send methods
+ *                              https://github.com/dropbox/amqp-coffee/blob/6d99cf4c9e312c9e5856897ab33458afbdd214e5/src/lib/Publisher.coffee#L90
+ *
+ * @property {Record<string, string | number | boolean>} [headers]
+ *
+ * @typedef QueueBindOptions
+ * @property {boolean} [autoDelete]
+ * @property {Record<string, string>} [arguments]
+ *
+ * @typedef Queue
+ * @property {Object} queueOptions
+ * @property {string} queueOptions.queue
+ * @property {string[]} [_routes]
+ * @property {(exchange: string, routingKey: string, options: QueueBindOptions) => Promise<any>} bindAsync
+ *
+ * @typedef AMQPError
+ * @property {string} replyText
  */
 
 // deps
@@ -22,6 +68,7 @@ const {
   ValidationError,
   InvalidOperationError,
   ArgumentError,
+  HttpStatusError,
 } = require('common-errors');
 
 // lodash fp
@@ -30,10 +77,10 @@ const defaults = require('lodash/defaults');
 const noop = require('lodash/noop');
 const uniq = require('lodash/uniq');
 const pick = require('lodash/pick');
+const readPkg = require('read-pkg');
 
 // local deps
 const { Joi, schema } = require('./schema');
-const pkg = require('../package.json');
 const AMQP = require('./utils/transport');
 const ReplyStorage = require('./utils/reply-storage');
 const Backoff = require('./utils/recovery');
@@ -51,7 +98,8 @@ const { jsonSerializer, jsonDeserializer } = require('./utils/serialization');
 const { AmqpDLXError } = generateErrorMessage;
 const { wrapError, setQoS } = helpers;
 const { Tags, FORMAT_TEXT_MAP } = opentracing;
-const PARSE_ERR = new ValidationError('couldn\'t deserialize input', 500, 'message.raw');
+const PARSE_ERR = new ValidationError('couldn\'t deserialize input', '500', 'message.raw');
+const pkg = readPkg.sync();
 
 /**
  * Wraps regular in a bluebird promise
@@ -78,6 +126,12 @@ const wrapPromise = (span, promise) => Bluebird.resolve((async () => {
   }
 })());
 
+/**
+ *
+ * @param {any} message
+ * @param {PublishOptions} publishOptions
+ * @returns
+ */
 const serialize = async (message, publishOptions) => {
   let serialized;
   switch (publishOptions.contentType) {
@@ -97,6 +151,11 @@ const serialize = async (message, publishOptions) => {
   return serialized;
 };
 
+/**
+ * @param {any} data
+ * @param {import("pino").BaseLogger} log
+ * @returns
+ */
 function safeJSONParse(data, log) {
   try {
     return JSON.parse(data, jsonDeserializer);
@@ -106,6 +165,11 @@ function safeJSONParse(data, log) {
   }
 }
 
+/**
+ * @template {string} T
+ * @param {T | T[]} routes
+ * @returns {T[]}
+ */
 const toUniqueStringArray = (routes) => (
   Array.isArray(routes) ? uniq(routes) : [routes]
 );
@@ -114,17 +178,17 @@ const toUniqueStringArray = (routes) => (
  * Routing function HOC with reply RPC enhancer
  * @param  {Function} messageHandler
  * @param  {AMQPTransport} transport
- * @returns {Function}
+ * @returns {(message: any, properties: AMQPMessage['properties'], raw: AMQPMessage) => any}
  */
 const initRoutingFn = (messageHandler, transport) => {
   /**
    * Response Handler Function. Sends Reply or Noop log.
    * @param  {AMQPMessage} raw - Raw AMQP Message Structure
-   * @param  {Error} error - Error if it happened.
-   * @param  {mixed} data - Response data.
-   * @returns {Bluebird<any>}
+   * @param  {Error | null} error - Error if it happened.
+   * @param  {any} data - Response data.
+   * @returns {Promise<any>}
    */
-  function responseHandler(raw, error, data) {
+  async function responseHandler(raw, error, data) {
     const { properties, span } = raw;
     return !properties.replyTo || !properties.correlationId
       ? transport.noop(error, data, span, raw)
@@ -133,13 +197,10 @@ const initRoutingFn = (messageHandler, transport) => {
 
   /**
    * Initiates consumer message handler.
-   * @param  {mixed} message - Data passed from the publisher.
-   * @param  {Object} properties - AMQP Message properties.
-   * @param  {Object} raw - Original AMQP message.
-   * @param  {Function} [raw.ack] - Acknowledge if nack is `true`.
-   * @param  {Function} [raw.reject] - Reject if nack is `true`.
-   * @param  {Function} [raw.retry] - Retry msg if nack is `true`.
-   * @returns {Void}
+   * @param  {any} message - Data passed from the publisher.
+   * @param  {AMQPMessage['properties']} properties - AMQP Message properties.
+   * @param  {AMQPMessage} raw - Original AMQP message.
+   * @returns {any}
    */
   return function router(message, properties, raw) {
     // add instrumentation
@@ -166,23 +227,25 @@ const initRoutingFn = (messageHandler, transport) => {
 };
 
 /**
+ * @template [T=any]
  * @param {Object} response
- * @oaram {Object} response.data
- * @oaram {Object} response.headers
+ * @oaram {T} response.data
+ * @oaram {Record<string, any>} response.headers
  * @param {Object} replyOptions
  * @param {boolean} replyOptions.simpleResponse
- * @returns {Object}
+ * @returns {T | { data: T, headers: Record<string, any>}}
  */
 function adaptResponse(response, replyOptions) {
   return replyOptions.simpleResponse === false ? response : response.data;
 }
 
 /**
- * @param {mixed} message
- * @param {Object} message.data
- * @param {Object} message.error
- * @param {Object} properties
- * @param {Object} properties.headers
+ * @template [T=any]
+ * @param {Object} message
+ * @param {T} message.data
+ * @param {Error | null} message.error
+ * @param {AMQPMessage['properties']} properties
+ * @returns {{ data: T, headers: AMQPMessage['properties']['headers'] }}
  */
 function buildResponse(message, properties) {
   const { headers } = properties;
@@ -356,9 +419,9 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Noop function with empty correlation id and reply to data
-   * @param  {Error} error
-   * @param  {mixed} data
-   * @param  {Span}  [span]
+   * @param  {Error | null} error
+   * @param  {any} data
+   * @param  {Span} [span]
    * @param  {AMQPMessage} [raw]
    */
   noop(error, data, span, raw) {
@@ -431,7 +494,7 @@ class AMQPTransport extends EventEmitter {
 
     // prepare params
     const ctx = Object.create(null);
-    const userParams = is.string(opts) ? { queue: opts } : opts;
+    const userParams = typeof opts === 'string' ? { queue: opts } : opts;
     const requestedName = userParams.queue;
     const params = merge({ autoDelete: !requestedName, durable: !!requestedName }, userParams);
 
@@ -499,6 +562,14 @@ class AMQPTransport extends EventEmitter {
   // precondition-failed  406
   //  The client requested a method that was not allowed
   //  because some precondition failed.
+  /**
+   *
+   * @param {Consumer} consumer
+   * @param {Queue} queue
+   * @param {any} err
+   * @param {any} res
+   * @returns
+   */
   async handleConsumerError(consumer, queue, err, res) {
     const error = err.error || err;
 
@@ -522,6 +593,13 @@ class AMQPTransport extends EventEmitter {
     }
   }
 
+  /**
+   *
+   * @param {Consumer} consumer
+   * @param {AMQPError | null} err
+   * @param {any} res
+   * @returns
+   */
   async rebindConsumer(consumer, err, res) {
     const msg = err ? err.replyText : 'uncertain';
 
@@ -546,6 +624,9 @@ class AMQPTransport extends EventEmitter {
     }
   }
 
+  /**
+   * @param {Consumer} consumer
+   */
   handlePrivateConsumerCancel(consumer) {
     consumer.removeAllListeners('error');
     consumer.removeAllListeners('cancel');
@@ -560,6 +641,7 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Create unnamed private queue (used for reply events)
+   * @param {number} [attempt]
    */
   async createPrivateQueue(attempt = 0) {
     const replyTo = this._replyTo;
@@ -606,7 +688,17 @@ class AMQPTransport extends EventEmitter {
     return createdQueue;
   }
 
+  /**
+   *
+   * @param {string[]} routes
+   * @param {*} queue
+   * @param {*} oldQueue
+   * @returns
+   */
   async bindQueueToExchangeOnRoutes(routes, queue, oldQueue = Object.create(null)) {
+    /**
+     * @type {string[]}
+     */
     const previousRoutes = oldQueue._routes || [];
 
     if (routes.length === 0 && previousRoutes.length === 0) {
@@ -654,8 +746,7 @@ class AMQPTransport extends EventEmitter {
     if (config.bindPersistantQueueToHeadersExchange === true) {
       for (const route of listen.values()) {
         assert.ok(
-          /^[^*#]+$/,
-          route,
+          /^[^*#]+$/.test(route),
           'with bindPersistantQueueToHeadersExchange: true routes must not have patterns'
         );
       }
@@ -737,6 +828,7 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Utility function to close consumer and forget about it
+   * @param {Consumer} consumer
    */
   async closeConsumer(consumer) {
     this.log.warn('closing consumer', consumer.consumerTag);
@@ -763,7 +855,7 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Prevents consumer from re-establishing connection
-   * @param {Consumer} consumer
+   * @param {Consumer} [consumer]
    * @returns {Promise<Void>}
    */
   async stopConsumedQueue(consumer) {
@@ -798,7 +890,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {string} exchange - Exchange to bind to.
    * @param  {Queue} queue - Declared queue object.
    * @param  {string} route - Routing key.
-   * @param  {boolean} [headerName=false] - if exchange has `headers` type.
+   * @param  {string | boolean} [headerName=false] - if exchange has `headers` type.
    * @returns {Promise<any>}
    */
   async bindRoute(exchange, queue, route, headerName = false) {
@@ -837,7 +929,7 @@ class AMQPTransport extends EventEmitter {
    * Bind specified queue to exchange
    *
    * @param {object} queue     - queue instance created by .createQueue
-   * @param {string} _routes   - messages sent to this route will be delivered to queue
+   * @param {string | string[]} _routes   - messages sent to this route will be delivered to queue
    * @param {object} [opts={}] - exchange parameters:
    *                 https://github.com/dropbox/amqp-coffee#connectionexchangeexchangeargscallback
    */
@@ -867,9 +959,9 @@ class AMQPTransport extends EventEmitter {
   /**
    * Binds multiple routing keys to headers exchange.
    * @param  {Object} queue
-   * @param  {mixed} _routes
+   * @param  {string | string[]} _routes
    * @param  {Object} opts
-   * @param  {boolean} [headerName=false] - if exchange has `headers` type
+   * @param  {string | boolean} [headerName=true] - if exchange has `headers` type
    * @returns {Bluebird<*>}
    */
   bindHeadersExchange(queue, _routes, opts, headerName = true) {
@@ -898,7 +990,7 @@ class AMQPTransport extends EventEmitter {
    * Unbind specified queue from exchange
    *
    * @param {object} queue   - queue instance created by .createQueue
-   * @param {string} _routes - messages sent to this route will be delivered to queue
+   * @param {string | string[]} _routes - messages sent to this route will be delivered to queue
    * @returns {Bluebird<any>}
    */
   unbindExchange(queue, _routes) {
@@ -926,8 +1018,8 @@ class AMQPTransport extends EventEmitter {
    * Low-level publishing method
    * @param  {string} exchange
    * @param  {string} queueOrRoute
-   * @param  {mixed} _message
-   * @param  {Object} options
+   * @param  {any} _message
+   * @param  {PublishOptions} options
    * @returns {Promise<*>}
    */
   async sendToServer(exchange, queueOrRoute, _message, options) {
@@ -955,11 +1047,13 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Send message to specified route
+   *
+   * @template [T=any]
+   *
    * @param {String} route - Destination route
-   * @param {mixed} message - Message to send - will be coerced to string via stringify
-   * @param {Object} [options={}] - Additional options
+   * @param {any} message - Message to send - will be coerced to string via stringify
+   * @param {PublishOptions} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
-   * @template T
    * @returns {Bluebird<T>}
    */
   publish(route, message, options = {}, parentSpan) {
@@ -987,11 +1081,13 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Send message to specified queue directly
+   *
+   * @template [T=any]
+   *
    * @param {String} queue - Destination queue
-   * @param {mixed} message - Message to send
-   * @param {Object} [options={}] - Additional options
+   * @param {any} message - Message to send
+   * @param {PublishOptions} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
-   * @template T
    * @returns {Bluebird<T>}
    */
   send(queue, message, options = {}, parentSpan) {
@@ -1019,11 +1115,13 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Sends a message and then awaits for response
+   *
+   * @template [T=any]
+   *
    * @param {String} route - Destination route
-   * @param {mixed} message - Message to send - will be coerced to string via stringify
-   * @param {Object} [options={}] - Additional options
+   * @param {any} message - Message to send - will be coerced to string via stringify
+   * @param {PublishOptions} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
-   * @template T
    * @returns {Promise<T>}
    */
   publishAndWait(route, message, options = {}, parentSpan) {
@@ -1048,11 +1146,12 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Send message to specified queue directly and wait for answer
+   * @template [T=any]
+   *
    * @param {string} queue - Destination queue
    * @param {any} message - Message to send
-   * @param {Object} [options={}] - Additional options
+   * @param {PublishOptions} [options={}] - Additional options
    * @param {opentracing.Span} [parentSpan] - Existing span
-   * @template T
    * @returns {Bluebird<T>}
    */
   sendAndWait(queue, message, options = {}, parentSpan) {
@@ -1076,10 +1175,7 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Specifies default publishing options
-   * @param  {Object} options
-   * @param  {String} options.exchange - will be overwritten by exchange thats passed
-   *  in the publish/send methods
-   *  https://github.com/dropbox/amqp-coffee/blob/6d99cf4c9e312c9e5856897ab33458afbdd214e5/src/lib/Publisher.coffee#L90
+   * @param {PublishOptions} options
    * @return {Object}
    */
   _publishOptions(options = {}) {
@@ -1114,14 +1210,14 @@ class AMQPTransport extends EventEmitter {
    * Reply to sender queue based on headers
    *
    * @param   {Object} properties - incoming message headers
-   * @param   {mixed}  message - message to send
+   * @param   {any}  message - message to send
    * @param   {Span}   [span] - opentracing span
    * @param   {AMQPMessage} [raw] - raw message
    * @returns {Bluebird<any>}
    */
   reply(properties, message, span, raw) {
     if (!properties.replyTo || !properties.correlationId) {
-      const error = new ValidationError('replyTo and correlationId not found in properties', 400);
+      const error = new HttpStatusError(400, 'replyTo and correlationId not found in properties');
 
       if (span !== undefined) {
         span.setTag(Tags.ERROR, true);
@@ -1138,6 +1234,9 @@ class AMQPTransport extends EventEmitter {
       return Bluebird.reject(error);
     }
 
+    /**
+     * @type {PublishOptions}
+     */
     const options = {
       correlationId: properties.correlationId,
     };
@@ -1172,7 +1271,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {Object}   options
    * @param  {String}   message
    * @param  {Function} publishMessage
-   * @param  {Span}     span - opentracing span
+   * @param  {Span}     [span] - opentracing span
    * @return {Promise}
    */
   async createMessageHandler(routing, message, options, publishMessage, span) {
@@ -1257,15 +1356,6 @@ class AMQPTransport extends EventEmitter {
 
   /**
    *
-   * @param  {Object} message
-   *  - @param {Object} data: a getter that returns the data in its parsed form, eg a
-   *                           parsed json object, a string, or the raw buffer
-   *  - @param {Object} raw: the raw buffer that was returned
-   *  - @param {Object} properties: headers specified for the message
-   *  - @param {Number} size: message body size
-   *  - @param {Function} ack(): function : only used when prefetchCount is specified
-   *  - @param {Function} reject(): function: only used when prefetchCount is specified
-   *  - @param {Function} retry(): function: only used when prefetchCount is specified
    */
   _onConsume(_router) {
     assert(is.fn(_router), '`router` must be a function');
@@ -1275,6 +1365,13 @@ class AMQPTransport extends EventEmitter {
     const parseInput = amqpTransport._parseInput.bind(amqpTransport);
     const router = _router.bind(amqpTransport);
 
+    /**
+     * @param  {Object} incoming
+     * @param {Object} incoming.data: a getter that returns the data in its parsed form, eg a
+     *                           parsed json object, a string, or the raw buffer
+     * @param {AMQPMessage['properties']} incoming.properties
+     * @param {AMQPMessage} incoming.raw
+     */
     return async function consumeMessage(incoming) {
       // emit pre processing hook
       amqpTransport.emit('pre', incoming);
@@ -1298,8 +1395,8 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Distributes messages from a private queue
-   * @param  {mixed}  message
-   * @param  {Object} properties
+   * @param  {any}  message
+   * @param  {AMQPMessage['properties']} properties
    */
   _privateMessageRouter(message, properties/* , raw */) { // if private queue has nack set - we must ack msg
     const { correlationId, replyTo, headers } = properties;
@@ -1359,10 +1456,11 @@ class AMQPTransport extends EventEmitter {
 
   /**
    * Parses AMQP message
+   * @template [T=any]
    * @param  {Buffer} _data
    * @param  {String} [contentType='application/json']
    * @param  {String} [contentEncoding='plain']
-   * @return {Object}
+   * @return {Promise<T | { err: Error }>}
    */
   async _parseInput(_data, contentType = 'application/json', contentEncoding = 'plain') {
     let data;
@@ -1395,7 +1493,7 @@ class AMQPTransport extends EventEmitter {
   /**
    * Handle 406 Error.
    * @param  {Object} params - exchange params
-   * @param  {Error}  err    - 406 Conflict Error.
+   * @param  {AMQPError}  err    - 406 Conflict Error.
    */
   _on406(params, err) {
     this.log.warn({ params }, '[406] error declaring exchange/queue: %s', err.replyText);
@@ -1460,7 +1558,7 @@ AMQPTransport.create = function create(_config, _messageHandler) {
 
 /**
  * Allows one to consume messages with a given router and predefined callback handler
- * @param  {Object} _config
+ * @param  {Record<string, any>} config
  * @param  {Function} [_messageHandler]
  * @param  {Object} [_opts={}]
  * @returns {Bluebird<AMQPTransport>}
@@ -1468,7 +1566,7 @@ AMQPTransport.create = function create(_config, _messageHandler) {
 AMQPTransport.connect = function connect(config, _messageHandler, _opts = {}) {
   return AMQPTransport
     .create(config, _messageHandler)
-    .spread(async (amqp, messageHandler) => {
+    .then(async ([amqp, messageHandler]) => {
       // do not init queues
       if (is.fn(messageHandler) !== false || amqp.config.listen) {
         await amqp.createConsumedQueue(messageHandler, amqp.config.listen, _opts);
@@ -1483,13 +1581,13 @@ AMQPTransport.connect = function connect(config, _messageHandler, _opts = {}) {
  * per each of the routes we want to listen to
  * @param  {Object} config
  * @param  {Function} [_messageHandler]
- * @param  {Object} [_opts={}]
+ * @param  {Object} [opts={}]
  * @returns {Bluebird<AMQPTransport>}
  */
 AMQPTransport.multiConnect = function multiConnect(config, _messageHandler, opts = []) {
   return AMQPTransport
     .create(config, _messageHandler)
-    .spread(async (amqp, messageHandler) => {
+    .then(async ([amqp, messageHandler]) => {
       // do not init queues
       if (is.fn(messageHandler) === false && !amqp.config.listen) {
         return amqp;

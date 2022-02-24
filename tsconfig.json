@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "allowJs": true,
+    "checkJs": true,
+    "target": "esnext",
+    "moduleResolution": "node",
+    "importHelpers": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "outDir": "lib"
+  },
+  "exclude": [
+    "**/node_modules/**"
+  ]
+}
