@@ -5,6 +5,15 @@ module.exports = function generateErrorMessage(routing, timeout) {
   return `job timed out on routing ${routing} after ${timeout} ms`;
 };
 
+/**
+ * @typedef AmqpDLXError
+ * @property {{ reason: string, queue: string, count: number }[]} xDeath
+ * @property {string} originalMessage
+ */
+
+/**
+ * @class AmqpDLXError
+ */
 module.exports.AmqpDLXError = Errors.helpers.generateClass('AmqpDLXError', {
   args: ['xDeath', 'originalMessage'],
 
@@ -33,6 +42,8 @@ module.exports.AmqpDLXError = Errors.helpers.generateClass('AmqpDLXError', {
    *    - maxlen - the maximum allowed queue length was exceeded.
    *
    *    Note that the array is sorted most-recent-first, so the most recent dead-lettering will be recorded in the first entry.
+   *
+   * @this {AmqpDLXError}
    */
   generateMessage() {
     const message = [];

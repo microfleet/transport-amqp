@@ -34,8 +34,11 @@ class ReplyStorage {
    * @param  {Function} opts.reject - promise reject action.
    * @param  {number} opts.timeout - expected response time.
    * @param  {string} opts.routing - routing key for error message.
-   * @param  {boolean} opts.simple - whether return body-only response or include headers
+   * @param  {boolean} [opts.simple] - whether return body-only response or include headers
    * @param  {Array[number]} opts.time - process.hrtime() results.
+   * @param  {Record<string, any>} opts.replyOptions
+   * @param  {NodeJS.Timer | null} [opts.timer]
+   * @param  {any} [opts.cache]
    * @returns {Void}
    */
   push(correlationId, opts) {

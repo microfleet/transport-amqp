@@ -2,6 +2,11 @@ const is = require('is');
 const Errors = require('common-errors');
 
 // generate internal error class for passing between amqp
+
+/**
+ * @class MSError
+ * @param {string} message
+ */
 const MSError = Errors.helpers.generateClass('MSError', {
   globalize: false,
   args: ['message'],
@@ -9,8 +14,9 @@ const MSError = Errors.helpers.generateClass('MSError', {
 
 /**
  * Serializes Own Properties of Error
- * @param  {String} key
- * @returns {Object<{ key, value }>}
+ * @this {Record<string, any>}
+ * @param  {string} key
+ * @returns {{ key: string, value: any }}
  */
 function serializeOwnProperties(key) {
   return {
@@ -21,8 +27,9 @@ function serializeOwnProperties(key) {
 
 /**
  * Cached Deserialized Own Properties
- * @param  {Object<{ key, value }>} data
- * @returns {Void}
+ * @this {Record<string, any>}
+ * @param {{ key: string, value: any }} data
+ * @returns {void}
  */
 function deserializeOwnProperties(data) {
   this[data.key] = data.value;
@@ -31,26 +38,23 @@ function deserializeOwnProperties(data) {
 /**
  * Make sure we can transfer errors via rabbitmq through toJSON() call
  * @param  {Error} error
- * @return {Object}
+ * @return {{ type: 'ms-error', data: Record<string, any> }}
  */
 function serializeError(error) {
   // serialized output
-  const serialized = {
+  return {
     type: 'ms-error',
+    data: Object
+      .getOwnPropertyNames(error)
+      .filter((prop) => typeof error[prop] !== 'function')
+      .map(serializeOwnProperties, error),
   };
-
-  serialized.data = Object
-    .getOwnPropertyNames(error)
-    .filter((prop) => typeof error[prop] !== 'function')
-    .map(serializeOwnProperties, error);
-
-  return serialized;
 }
 
 /**
  * Make sure we get a valid JS error
  * @param  {Object} error
- * @return {Error}
+ * @return {ReturnType<MSError>}
  */
 function deserializeError(error) {
   const deserialized = new MSError();
@@ -58,6 +62,10 @@ function deserializeError(error) {
   return deserialized;
 }
 
+/**
+ * @param {string} key
+ * @param {any} value
+ */
 function jsonSerializer(key, value) {
   if (value instanceof Error) {
     return serializeError(value);
