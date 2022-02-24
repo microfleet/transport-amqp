@@ -674,7 +674,7 @@ class AMQPTransport extends EventEmitter {
       // are not delivered & private queue is never ready
       const dlxConfig = this.config.dlx;
       if (dlxConfig.enabled === true) {
-        await this.bindHeadersExchange(queue, this._replyTo, dlxConfig.params, true);
+        await this.bindHeadersExchange(queue, this._replyTo, dlxConfig.params, 'reply-to');
       }
     } catch (e) {
       this.log.error({ err: e }, 'private queue creation failed - restarting');
@@ -890,7 +890,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {string} exchange - Exchange to bind to.
    * @param  {Queue} queue - Declared queue object.
    * @param  {string} route - Routing key.
-   * @param  {boolean} [headerName=false] - if exchange has `headers` type.
+   * @param  {string | boolean} [headerName=false] - if exchange has `headers` type.
    * @returns {Promise<any>}
    */
   async bindRoute(exchange, queue, route, headerName = false) {
@@ -961,7 +961,7 @@ class AMQPTransport extends EventEmitter {
    * @param  {Object} queue
    * @param  {string | string[]} _routes
    * @param  {Object} opts
-   * @param  {boolean} [headerName=false] - if exchange has `headers` type
+   * @param  {string | boolean} [headerName=true] - if exchange has `headers` type
    * @returns {Bluebird<*>}
    */
   bindHeadersExchange(queue, _routes, opts, headerName = true) {
