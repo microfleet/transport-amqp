@@ -18,6 +18,7 @@
  *
  * @typedef ConsumerBase
  * @property {(err: any, result?: any) => void} cancel
+ * @property {() => void} close
  * @property {string} consumerTag
  *
  * @typedef {EventEmitter & ConsumerBase} Consumer
