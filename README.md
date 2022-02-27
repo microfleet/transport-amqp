@@ -55,7 +55,7 @@ const router = (message, properties, actions, next) => {
   // those of value are:
   // `properties.headers`, `properties.correlationId`, `properties.replyTo`
 
-  // actions - if `neck` (prefetchCount >= 0, noAck: true) is defined, it would have
+  // actions - if `neck` (prefetchCount >= 0, noAck: false) is defined, it would have
   //  - .ack()
   //  - .reject()
   //  - .retry()

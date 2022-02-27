@@ -741,8 +741,19 @@ class AMQPTransport extends EventEmitter {
 
     const { config } = this;
     const router = initRoutingFn(messageHandler, this);
-    const baseOpts = { router, neck: config.neck, queue: config.queue || '' };
-    const queueOptions = merge(baseOpts, config.defaultQueueOpts, this._extraQueueOptions, options);
+    const baseOpts = {
+      router,
+      neck: config.neck,
+      noAck: config.noAck,
+      queue: config.queue || '',
+    };
+
+    const queueOptions = merge(
+      baseOpts,
+      config.defaultQueueOpts,
+      this._extraQueueOptions,
+      options
+    );
 
     if (config.bindPersistantQueueToHeadersExchange === true) {
       for (const route of listen.values()) {

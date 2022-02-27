@@ -53,6 +53,9 @@ exports.schema = Joi
     neck: Joi.number().min(0)
       .description('if defined - queues will enter QoS mode with required ack & prefetch size of neck'),
 
+    noAck: Joi.boolean()
+      .description('allow setting auto-ack when neck is defined'),
+
     tracer: Joi.object(),
 
     connection: Joi
