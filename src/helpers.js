@@ -1,4 +1,3 @@
-const is = require('is');
 const omit = require('lodash/omit');
 const { MSError } = require('./utils/serialization');
 
@@ -37,13 +36,13 @@ exports.wrapError = function wrapError(originalError) {
  * @return {Object}
  */
 exports.setQoS = function setQoS(opts) {
-  const { neck } = opts;
-  const output = omit(opts, 'neck');
+  const { neck, noAck } = opts;
+  const output = omit(opts, ['neck', 'noAck']);
 
-  if (is.undefined(neck)) {
+  if (typeof neck === 'undefined') {
     output.noAck = true;
   } else {
-    output.noAck = false;
+    output.noAck = noAck == null ? false : noAck;
     output.prefetchCount = neck > 0 ? neck : 0;
   }
 
