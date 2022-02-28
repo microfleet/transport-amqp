@@ -31,6 +31,10 @@
  * @property {string} [exchange] - will be overwritten by exchange thats passed
  * @property {boolean} [gzip] - whether to encode using gzip
  * @property {boolean} [skipSerialize] - whether it was already serialized earlier
+ * @property {boolean} [confirm] - require ack from server on publish
+ * @property {boolean} [mandatory] - require queue to exist on publish
+ * @property {boolean} [immediate] - require message to be immediately routedd
+ * @property {1|2}     [deliveryMode] - transient or persistant, default to 1
  * @property {number}  [timeout] - optional ttl value for message in the publish/send methods
  *                              https://github.com/dropbox/amqp-coffee/blob/6d99cf4c9e312c9e5856897ab33458afbdd214e5/src/lib/Publisher.coffee#L90
  *
