@@ -3,7 +3,7 @@ const Promise = require('bluebird');
 const kPromisified = Symbol.for('@microfleet/amqp-promisified');
 
 // Promisify stuff
-['Exchange', 'Queue', 'Connection', 'Consumer', 'Publisher'].forEach((name) => {
+['Exchange', 'Queue', 'Connection', 'Consumer'].forEach((name) => {
   const path = require.resolve(`@microfleet/amqp-coffee/bin/src/lib/${name}`);
   const mod = require(path); // eslint-disable-line import/no-dynamic-require
 

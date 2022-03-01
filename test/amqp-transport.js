@@ -405,11 +405,8 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
     it('initializes amqp instance', () => {
       // mirrors all messages
       const spy = this.spy = sinon.spy(function listener(message, headers, actions, callback) {
-        if (actions && actions.ack) {
-          acksCalled += 1;
-          actions.ack();
-        }
-
+        acksCalled += 1;
+        actions.ack();
         callback(null, message);
       });
 
@@ -452,7 +449,7 @@ describe('AMQPTransport', function AMQPTransportTestSuite() {
         ))
         .delay(10); // to allow async action to call 'after'
 
-      assert.equal(acksCalled, q1.length);
+      assert.equal(acksCalled, pub.length); // all messages have .ack now
 
       // ensure all responses match
       pub.forEach((p, idx) => {
