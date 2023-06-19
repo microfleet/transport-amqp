@@ -62,7 +62,7 @@
     "bluebird": "^3.7.2",
     "common-errors": "^1.2.0",
     "debug": "^4.3.3",
-    "eventemitter3": "^4.0.7",
+    "eventemitter3": "^5.0.0",
     "flatstr": "^1.0.12",
     "hashlru": "^2.3.0",
     "is": "^3.3.0",
