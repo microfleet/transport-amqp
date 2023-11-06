@@ -40,7 +40,7 @@
     "codecov": "^3.8.3",
     "cross-env": "^7.0.3",
     "eslint": "^8.10.0",
-    "eslint-config-makeomatic": "^5.1.0",
+    "eslint-config-makeomatic": "^6.0.0",
     "eslint-plugin-import": "^2.25.4",
     "eslint-plugin-mocha": "^10.0.3",
     "eslint-plugin-promise": "^6.0.0",
