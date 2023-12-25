@@ -29,7 +29,7 @@
   },
   "homepage": "https://github.com/microfleet/transport-amqp#readme",
   "devDependencies": {
-    "@makeomatic/deploy": "^12.6.3",
+    "@makeomatic/deploy": "^13.0.0",
     "@types/bluebird": "^3.5.36",
     "@types/is": "^0.0.21",
     "@types/lodash": "^4.14.179",
